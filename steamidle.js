@@ -2,6 +2,7 @@ var SteamUser = require('steam-user');
 var SteamTotp = require('steam-totp');
 
 var prompt = require("prompt");
+var fs = require("fs");
 
 prompt.start();
 
@@ -52,13 +53,33 @@ function onErr(err) {
 //['keep_login']: keep a login key [FUTURE VERSION, NOT RECOMMENDED]
 var pws = {};
 var games = [730];
+var accfile = "idleaccs.json";
 var accs = {
-	account: {
+	smf316: {
 		pw_index: 1,
 		games: games,
 		online: true
 	}
 };
+try {
+	fs.accessSync(accfile, fs.constants.R_OK);
+} catch (err) {
+	console.log("Couldn't read account file '"+accfile+"'");
+	return 1;
+}
+var data = fs.readFileSync(accfile);
+try {
+	pdata = JSON.parse(data);
+	if (!(pdata instanceof Object)) {
+		throw Error("Parsed JSON is not an object");
+	}
+	accs = pdata;
+} catch(err) {
+	console.log(err);
+	console.log("Couldn't parse account file: "+err);
+	console.log(data);
+	return 1;
+}
 var accids = [];
 for (var i in accs) {
 	accids.push(i);
