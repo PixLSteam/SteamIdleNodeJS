@@ -6,3 +6,7 @@ Dependencies:
   * steam-user
   * steam-totp
   * prompt
+
+Changelog & upcoming features:
+[x] Account Config File (idleaccs.json)
+[ ] Game Presets
