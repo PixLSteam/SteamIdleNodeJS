@@ -2,7 +2,7 @@
 steam idle script using node.js
 
 Dependencies:
-node.js
-* steam-user
-* steam-topt
-* prompt
+* node.js
+  * steam-user
+  * steam-topt
+  * prompt
