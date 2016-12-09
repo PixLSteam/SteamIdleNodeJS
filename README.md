@@ -8,5 +8,7 @@ Dependencies:
   * prompt
 
 Changelog & upcoming features:
-[x] Account Config File (idleaccs.json)
-[ ] Game Presets
+- [x] Account Config File (idleaccs.json)
+- [ ] Game Presets
+- [ ] Option to keep login key
+- [ ] Option to use the secret to automatically generate authentication codes
