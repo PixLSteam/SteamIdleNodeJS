@@ -33,7 +33,7 @@ function login(name, pw, authcode, secret, games, online, callback) {
 	user.on('webSession', function() {
 		console.log('Logged in!');
 		user.setPersona(online && SteamUser.Steam.EPersonaState.Online || SteamUser.Steam.EPersonaState.Offline)
-		user.gamesPlayed(games || [730]);
+		user.gamesPlayed(games || [221410]);
 	    if (callback) {
 			callback();
 		}
@@ -52,14 +52,9 @@ function onErr(err) {
 //['secret']: secret for generating auth codes [NOT TESTED, CURRENTLY DISABLED]
 //['keep_login']: keep a login key [FUTURE VERSION, NOT RECOMMENDED]
 var pws = {};
-var games = [730];
+var games = [221410];
 var accfile = "idleaccs.json";
 var accs = {
-	smf316: {
-		pw_index: 1,
-		games: games,
-		online: true
-	}
 };
 try {
 	fs.accessSync(accfile, fs.constants.R_OK);
