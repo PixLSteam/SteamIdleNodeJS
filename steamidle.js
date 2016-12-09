@@ -1,13 +1,17 @@
-var SteamUser = require('steam-user');
-var SteamTotp = require('steam-totp');
+var SteamUser = require("steam-user");
+var SteamTotp = require("steam-totp");
 
 var prompt = require("prompt");
 var fs = require("fs");
 
 prompt.start();
 
+var users = {};
+
 function login(name, pw, authcode, secret, games, online, callback) {
 	var user = new SteamUser();
+	
+	var firstLoginTrigger = true;
 	
 	ac = authcode || SteamTotp.getAuthCode(secret || "");
 	
@@ -29,14 +33,47 @@ function login(name, pw, authcode, secret, games, online, callback) {
 		accountName: name,
 		password: pw
 	});
-	 
-	user.on('webSession', function() {
-		console.log('Logged in!');
+	
+	var loggedOn = function() {
 		user.setPersona(online && SteamUser.Steam.EPersonaState.Online || SteamUser.Steam.EPersonaState.Offline)
 		user.gamesPlayed(games || [221410]);
+	}
+	 
+	user.on("webSession", function() {
+		console.log("Logged in!");
+		users[name] = user;
+		loggedOn();
+		firstLoginTrigger = false;
 	    if (callback) {
 			callback();
 		}
+	});
+	
+	user.on("loggedOn", function() {
+		if (!firstLoginTrigger) {
+			console.log("Reconnected with "+name);
+			loggedOn();
+		}
+	});
+	
+	user.on("loginKey", function(key) {
+		
+	});
+	
+	user.on("newItems", function(count) {
+		
+	});
+	
+	user.on("newComments", function(count, myItems, discussions) {
+		
+	});
+	
+	user.on("tradeRequest", function(steamID, respond) {
+		
+	});
+	
+	user.on("user", function(sid, userdata) {
+		
 	});
 }
 
@@ -52,9 +89,23 @@ function onErr(err) {
 //['secret']: secret for generating auth codes [NOT TESTED, CURRENTLY DISABLED]
 //['keep_login']: keep a login key [FUTURE VERSION, NOT RECOMMENDED]
 var pws = {};
-var games = [221410];
+var games = [730];
 var accfile = "idleaccs.json";
+var game_presets_file = "idlegp.json";
+var game_presets = {
+	cs: [
+		10,
+		80,
+		240,
+		730
+	]
+};
 var accs = {
+	smf316: {
+		pw_index: 1,
+		games: games,
+		online: true
+	}
 };
 try {
 	fs.accessSync(accfile, fs.constants.R_OK);
