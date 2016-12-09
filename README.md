@@ -12,3 +12,4 @@ Changelog & upcoming features:
 - [ ] Game Presets
 - [ ] Option to keep login key
 - [ ] Option to use the secret to automatically generate authentication codes
+- [ ] Console parameters to specify Account Config File
