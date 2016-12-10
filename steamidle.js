@@ -14,7 +14,7 @@ function processGame(game) {
 	if ((typeof g) == "string" && g.substr(0, 1) == ":") { //clock
 		g = g.substr(1);
 		var d = new Date();
-		g = g.replaceMultiple({"%%": "%", "%H": d.getHours(), "%M": d.getMinutes()});
+		g = g.replaceMultiple({"%%": "%", "%H": d.getHours(), "%M": d.getMinutes(), "%S": d.getSeconds()});
 		while (g.search("%rd") >= 0) {
 			g = g.replace("%rd", Math.floor(Math.random() * 10));
 		}
@@ -81,7 +81,7 @@ function login(name, pw, authcode, secret, games, online, callback) {
 	
 	var loggedOn = function() {
 		user.setPersona(online && SteamUser.Steam.EPersonaState.Online || SteamUser.Steam.EPersonaState.Offline)
-		user.curIdling = games || [221410];
+		user.curIdling = user.curIdling || games || [221410];
 		idle(user, user.curIdling);
 	}
 	 
