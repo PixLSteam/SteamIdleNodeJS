@@ -116,20 +116,45 @@ try {
 }
 var data = fs.readFileSync(accfile);
 try {
-	pdata = JSON.parse(data);
+	var pdata = JSON.parse(data);
 	if (!(pdata instanceof Object)) {
 		throw Error("Parsed JSON is not an object");
 	}
 	accs = pdata;
 } catch(err) {
-	console.log(err);
+	// console.log(err);
 	console.log("Couldn't parse account file: "+err);
-	console.log(data);
+	// console.log(data);
 	return 1;
+}
+try {
+	fs.accessSync(game_presets_file, fs.constants.R_OK);
+	var gpdata = fs.readFileSync(game_presets_file);
+	try {
+		var pdata = JSON.parse(gpdata);
+		if (!(pdata instanceof Object)) {
+			throw Error("Parsed JSON is not an object");
+		}
+		for (var i in pdata) {
+			game_presets[i] = pdata[i];
+		}
+	} catch(err) {
+		console.log("Couldn't parse game presets file: "+err);
+	}
+} catch(err) {
+	console.log("No game presets file['"+game_presets_file+"'] found, skipping...");
 }
 var accids = [];
 for (var i in accs) {
 	accids.push(i);
+}
+function gamesVarToArray(v) {
+	if ((typeof v) == "string") {
+		if (game_presets[v]) {
+			return game_presets[v];
+		}
+	}
+	return v;
 }
 function doAccId(index) {
 	if (index >= accids.length) {
@@ -143,7 +168,7 @@ function doAccId(index) {
 		pwi = null;
 	}
 	var secret = accs[i]["secret"];
-	var games = accs[i]["games"];
+	var games = gamesVarToArray(accs[i]["games"]);
 	var online = accs[i]["online"];
 	var f = function(err, result) {
 		if (err) {
