@@ -411,9 +411,17 @@ function runCommand(cmd, callback) {
 	}
 	if (cmd[0] == "exit") {
 		//kill script
+		process.exit();
+		return;
 	}
 	if (cmd[0] == "add") {
 		//add user to idleaccs.json
+		console.log("Command 'add' currently isn't supported");
+		if (callback) {
+			return callback();
+		} else {
+			return;
+		}
 	}
 	if (cmd[0] == "idle") {
 		var user = cmd[1];
