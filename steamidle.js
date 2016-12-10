@@ -8,13 +8,29 @@ prompt.start();
 
 var users = {};
 
+function doubleDigit(num) {
+	var n = num + "";
+	if (n.length < 2) {
+		n = "0" + n;
+	}
+	return n;
+}
+
+function toBool(b) {
+	if (b) {
+		return true;
+	} else {
+		return false;
+	}
+}
+
 function processGame(game) {
 	g = game;
 	// console.log(typeof g, g);
 	if ((typeof g) == "string" && g.substr(0, 1) == ":") { //clock
 		g = g.substr(1);
 		var d = new Date();
-		g = g.replaceMultiple({"%%": "%", "%H": d.getHours(), "%M": d.getMinutes(), "%S": d.getSeconds()});
+		g = g.replaceMultiple({"%%": "%", "%H": doubleDigit(d.getHours()), "%M": doubleDigit(d.getMinutes()), "%S": doubleDigit(d.getSeconds())});
 		while (g.search("%rd") >= 0) {
 			g = g.replace("%rd", Math.floor(Math.random() * 10));
 		}
@@ -40,9 +56,21 @@ function idle(user, games) {
 	user.gamesPlayed(processGamesArray(games));
 }
 
+function updateOnlineStatus(name) {
+	var user;
+	if ((typeof name) == "string") {
+		user = users[name];
+	} else {
+		user = name;
+	}
+	user.setPersona(user.isOnline && SteamUser.Steam.EPersonaState.Online || SteamUser.Steam.EPersonaState.Offline);
+}
+
 function tick() {
 	for (var i in users) {
 		idle(users[i], users[i].curIdling);
+		// users[i].setPersona(users[i].isOnline && SteamUser.Steam.EPersonaState.Online || SteamUser.Steam.EPersonaState.Offline);
+		updateOnlineStatus(i);
 	}
 }
 
@@ -80,7 +108,7 @@ function login(name, pw, authcode, secret, games, online, callback) {
 	});
 	
 	var loggedOn = function() {
-		user.setPersona(online && SteamUser.Steam.EPersonaState.Online || SteamUser.Steam.EPersonaState.Offline)
+		updateOnlineStatus(name);
 		user.curIdling = user.curIdling || games || [221410];
 		idle(user, user.curIdling);
 	}
@@ -89,6 +117,7 @@ function login(name, pw, authcode, secret, games, online, callback) {
 		if (firstLoginTrigger) {
 			console.log("Logged in!");
 			users[name] = user;
+			user.isOnline = toBool(online);
 			loggedOn();
 			firstLoginTrigger = false;
 			if (callback) {
@@ -389,7 +418,8 @@ function runCommand(cmd, callback) {
 				for (var i in users) {
 					users[i].prepareKill();
 					users[i].logOff();
-					users[i] = null;
+					// users[i] = null;
+					delete users[i];
 				}
 			} else {
 				//logout acc
@@ -399,6 +429,54 @@ function runCommand(cmd, callback) {
 				users[acc].prepareKill();
 				users[acc].logOff();
 				users[acc] = null;
+			}
+		} catch(err) {
+			console.log("An error occured: "+err);
+		}
+		if (callback) {
+			return callback();
+		} else {
+			return;
+		}
+	}
+	if (cmd[0] == "online") {
+		var user = cmd[1];
+		try {
+			if (!user || user == "all" || user == "*") {
+				for (var i in users) {
+					users[i].isOnline = true;
+					updateOnlineStatus(i);
+				}
+			} else {
+				if (!users[user]) {
+					throw Error(user+" currently isn't logged in");
+				}
+				users[user].isOnline = true;
+				updateOnlineStatus(user);
+			}
+		} catch(err) {
+			console.log("An error occured: "+err);
+		}
+		if (callback) {
+			return callback();
+		} else {
+			return;
+		}
+	}
+	if (cmd[0] == "offline") {
+		var user = cmd[1];
+		try {
+			if (!user || user == "all" || user == "*") {
+				for (var i in users) {
+					users[i].isOnline = false;
+					updateOnlineStatus(i);
+				}
+			} else {
+				if (!users[user]) {
+					throw Error(user+" currently isn't logged in");
+				}
+				users[user].isOnline = false;
+				updateOnlineStatus(user);
 			}
 		} catch(err) {
 			console.log("An error occured: "+err);
