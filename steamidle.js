@@ -20,9 +20,13 @@ function login(name, pw, authcode, secret, games, online, callback) {
 	}
 	ac = SteamTotp.getAuthCode("");
 	 
-	 user.on("error", function(err) {
+	user.on("error", function(err) {
 		console.log("An error occured..."); 
-	 });
+	});
+	 
+	user.on("disconnected", function() {
+		console.log(name+" lost connection");
+	});
 	
 	user.on("steamGuard", function(domain, callback) {
 		console.log("Steam Guard code needed from email ending in "+domain);
@@ -40,12 +44,14 @@ function login(name, pw, authcode, secret, games, online, callback) {
 	}
 	 
 	user.on("webSession", function() {
-		console.log("Logged in!");
-		users[name] = user;
-		loggedOn();
-		firstLoginTrigger = false;
-	    if (callback) {
-			callback();
+		if (firstLoginTrigger) {
+			console.log("Logged in!");
+			users[name] = user;
+			loggedOn();
+			firstLoginTrigger = false;
+			if (callback) {
+				callback();
+			}
 		}
 	});
 	
@@ -101,11 +107,6 @@ var game_presets = {
 	]
 };
 var accs = {
-	smf316: {
-		pw_index: 1,
-		games: games,
-		online: true
-	}
 };
 try {
 	fs.accessSync(accfile, fs.constants.R_OK);
