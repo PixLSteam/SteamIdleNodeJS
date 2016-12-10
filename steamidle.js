@@ -428,7 +428,7 @@ function runCommand(cmd, callback) {
 				}
 				users[acc].prepareKill();
 				users[acc].logOff();
-				users[acc] = null;
+				delete users[acc];
 			}
 		} catch(err) {
 			console.log("An error occured: "+err);
