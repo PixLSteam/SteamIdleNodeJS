@@ -226,7 +226,7 @@ function tick() {
 	checkAlarms();
 }
 
-function login(name, pw, authcode, secret, games, online, callback) {
+function login(name, pw, authcode, secret, games, online, callback, opts) {
 	var user = new SteamUser();
 	
 	var firstLoginTrigger = true;
@@ -261,6 +261,7 @@ function login(name, pw, authcode, secret, games, online, callback) {
 	
 	var loggedOn = function() {
 		user.name = name;
+		user.opts = opts;
 		updateOnlineStatus(name);
 		user.curIdling = user.curIdling || games || [221410];
 		idle(user, user.curIdling);
@@ -383,7 +384,8 @@ var settings = {
 	offline_via_chat: false,
 	online_via_chat: false,
 	maximum_alarms: 10,
-	public_chat_bot: true
+	public_chat_bot: true,
+	autoaccept: true //whether to automatically accept friend requests, has to be turned on for every account by setting autoaccept_min_lvl to 0 or higher[CURRENTLY NOT SUPPORTED DUE TO MISSING EVENT/METHODS]
 };
 try {
 	fs.accessSync(settingsfile, fs.constants.R_OK);
@@ -476,7 +478,7 @@ function doAccId(index) {
 		if (pwi) {
 			pws[pwi] = result.password;
 		}
-		login(name, result.password, authcode, secret, games, online, function() {doAccId(index + 1);});
+		login(name, result.password, authcode, secret, games, online, function() {doAccId(index + 1);}, {autoaccept_min_lvl: accs[i]["autoaccept_min_lvl"] || -1});
 	}
 	if (pwi && pws[pwi]) {
 		console.log("Found existing password for "+name);
@@ -606,7 +608,7 @@ function runCommand(cmd, callback, output, via) { //via: steam, cmd
 				if (pwi) {
 					pws[pwi] = result.password;
 				}
-				login(name, result.password, authcode, secret, games, online, callback);
+				login(name, result.password, authcode, secret, games, online, callback, {autoaccept_min_lvl: accs[acc]["autoaccept_min_lvl"] || -1});
 			}
 			if (pwi && pws[pwi]) {
 				op("Found existing password for "+name);
