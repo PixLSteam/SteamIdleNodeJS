@@ -423,7 +423,7 @@ function login(name, pw, authcode, secret, games, online, callback, opts) {
 			user.getPersonas([sid], function(personas) {
 				
 				var sid64 = sidToSID64(sid);
-				console.log(user.redirectTo, personas, personas[sid64]);
+				// console.log(user.redirectTo, personas, personas[sid64]);
 				user.chatMessage(user.redirectTo, "Message from "+((personas[sid64] || {})["player_name"] || "Unknown")+" ["+sid64+"]: "+msg);
 			});
 		}
@@ -576,7 +576,7 @@ function doAccId(index) {
 		if (pwi) {
 			pws[pwi] = result.password;
 		}
-		login(name, result.password, authcode, secret, games, online, function() {doAccId(index + 1);}, {autoaccept_min_lvl: accs[i]["autoaccept_min_lvl"] || -1});
+		login(name, result.password, authcode, secret, games, online, function() {doAccId(index + 1);}, {autoaccept_min_lvl: (accs[i]["autoaccept_min_lvl"] == undefined || accs[i]["autoaccept_min_lvl"] == null ? -1 : accs[i]["autoaccept_min_lvl"])});
 	}
 	if (pwi && pws[pwi]) {
 		console.log("Found existing password for "+name);
@@ -706,7 +706,7 @@ function runCommand(cmd, callback, output, via) { //via: steam, cmd
 				if (pwi) {
 					pws[pwi] = result.password;
 				}
-				login(name, result.password, authcode, secret, games, online, callback, {autoaccept_min_lvl: accs[acc]["autoaccept_min_lvl"] || -1});
+				login(name, result.password, authcode, secret, games, online, callback, {autoaccept_min_lvl: (accs[acc]["autoaccept_min_lvl"] == undefined || accs[acc]["autoaccept_min_lvl"] == null ? -1 : accs[acc]["autoaccept_min_lvl"])});
 			}
 			if (pwi && pws[pwi]) {
 				op("Found existing password for "+name);
