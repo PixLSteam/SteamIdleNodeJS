@@ -1,12 +1,32 @@
 var SteamUser = require("steam-user");
 var SteamTotp = require("steam-totp");
 
+var SteamCommunity = require("steamcommunity");
+var community = new SteamCommunity();
+
 var prompt = require("prompt");
 var fs = require("fs");
 
 prompt.start();
 
 var users = {};
+
+var alarms = {};
+
+function reverseString(str) {
+	var s = "";
+	for (var i = str.length; i--; i >= 0) {
+		s = s + str[i];
+	}
+	return s;
+}
+
+Date.prototype.addDays = function(days)
+{
+	var dat = new Date(this.valueOf());
+	dat.setDate(dat.getDate() + days);
+	return dat;
+}
 
 function doubleDigit(num) {
 	var n = num + "";
@@ -22,6 +42,10 @@ function toBool(b) {
 	} else {
 		return false;
 	}
+}
+
+function getDefaultOutput() {
+	return console.log;
 }
 
 function processGame(game) {
@@ -56,6 +80,133 @@ function idle(user, games) {
 	user.gamesPlayed(processGamesArray(games));
 }
 
+function parsePeriod(period) {
+	var re = /[1-9][0-9]*[hHmMsS]/g;
+	var mults = [
+		{
+			mult: 1,
+			id: ["s", "S"]
+		},
+		{
+			mult: 60,
+			id: ["m", "M"]
+		},
+		{
+			mult: 60*60,
+			id: ["h", "H"]
+		}
+	];
+	var pep = null;
+	var sec = 0;
+	var p = period;
+	// var c = 0;
+	while (pep = re.exec(p)) {
+		// pep = re.exec(p);
+		// console.log(c, pep, re, p);
+		if (!pep) {
+			break;
+		}
+		var re1 = /([1-9][0-9]*)([sSmMhH])/;
+		var res = re1.exec(pep);
+		var num = res[1];
+		var muls = res[2];
+		var mult = 1;
+		for (var i = 0; i < mults.length; i++) {
+			if (mults[i]["id"].includes(muls)) {
+				mult = mults[i]["mult"];
+				break;
+			}
+		}
+		sec = sec + mult * parseInt(num);
+		// c++;
+		// if (c >= 499) {
+			// return null;
+		// }
+	}
+	return sec;
+}
+
+function checkAlarms() {
+	var curDate = new Date();
+	var curTime = curDate.getTime();
+	for (var user in alarms) {
+		for (var sid64 in alarms[user]) {
+			var ualarms = alarms[user][sid64];
+			var tr = false;
+			for (var i in ualarms) {
+				var ualarm = ualarms[i];
+				var time = ualarm["time"];
+				var desc = ualarm["desc"];
+				if (time < curTime) {
+					if (users[user]) {
+						var msg = "Your alarm was triggered";
+						if (desc) {
+							msg = msg + ": "+desc;
+						}
+						users[user].chatMessage(sid64, msg);
+					}
+					tr = true;
+				}
+			}
+			while (tr) {
+				var c = false;
+				for (var i in ualarms) {
+					var ualarm = ualarms[i];
+					var time = ualarm["time"];
+					var desc = ualarm["desc"];
+					if (time < curTime) {
+						c = true;
+						ualarms.splice(i, 1);
+						break;
+					}
+				}
+				if (!c) {
+					break;
+				}
+			}
+			alarms[user][sid64] = ualarms;
+		}
+	}
+}
+
+function addAlarm(user, sid, str, msg) {
+	var sid64 = sid.getSteamID64();
+	if (!alarms[user]) {
+		alarms[user] = {};
+	}
+	if (!alarms[user][sid64]) {
+		alarms[user][sid64] = [];
+	}
+	var curDate = new Date();
+	var re_total = /^([0-1]?[0-9]|2[0-4]):([0-5]?[0-9])$/;
+	var re_period = /^(([1-9][0-9]*)[hH])?(([1-9][0-9]*)[mM])?(([1-9][0-9]*)[sS])?$/;
+	var re_period2 = /^\S*$/;
+	var altime = 0;
+	if (re_total.exec(str)) {
+		var today = new Date(curDate.toDateString());
+		var tomorrow = today.addDays(1);
+		var todtime = new Date(today.toDateString() + " " + str);
+		var tomtime = new Date(tomorrow.toDateString() + " " + str);
+		if (todtime.getTime() < curDate.getTime()) {
+			altime = tomtime.getTime();
+		} else {
+			altime = todtime.getTime();
+		}
+	} else if (re_period.exec(str) && re_period2.exec(str)) {
+		var p = parsePeriod(str);
+		altime = curDate.getTime() + (p * 1000);
+	} else {
+		return false;
+	}
+	var ualarms = alarms[user][sid64];
+	if (ualarms.length >= settings["maximum_alarms"]) {
+		return false;
+	}
+	ualarms.push({time: altime, desc: msg});
+	alarms[user][sid64] = ualarms;
+	return altime;
+}
+
 function updateOnlineStatus(name) {
 	var user;
 	if ((typeof name) == "string") {
@@ -72,6 +223,7 @@ function tick() {
 		// users[i].setPersona(users[i].isOnline && SteamUser.Steam.EPersonaState.Online || SteamUser.Steam.EPersonaState.Offline);
 		updateOnlineStatus(i);
 	}
+	checkAlarms();
 }
 
 function login(name, pw, authcode, secret, games, online, callback) {
@@ -108,6 +260,7 @@ function login(name, pw, authcode, secret, games, online, callback) {
 	});
 	
 	var loggedOn = function() {
+		user.name = name;
 		updateOnlineStatus(name);
 		user.curIdling = user.curIdling || games || [221410];
 		idle(user, user.curIdling);
@@ -156,6 +309,40 @@ function login(name, pw, authcode, secret, games, online, callback) {
 	user.on("user", function(sid, userdata) {
 		
 	});
+	
+	user.on("friendMessage", function(sid, msg) {
+		var sid64 = sid.getSteamID64();
+		// user.chatMessage(sid, "Your steamid64: "+sid64);
+		// user.chatMessage(sid, reverseString(msg));
+		var authorized = false;
+		var wl = settings["cmd_whitelist"];
+		if (!wl || !(wl instanceof Array)) {
+			wl = [];
+		}
+		if (wl.includes(sid64) || wl.includes(sid.getSteam3RenderedID()) || wl.includes(sid.getSteam2RenderedID(true)) || wl.includes(sid.getSteam2RenderedID())) {
+			authorized = true;
+		}
+		var publicCommandExecuted = false;
+		var r = checkForPublicCommand(sid, msg, user, name);
+		if (r) {
+			publicCommandExecuted = true;
+		}
+		if (!publicCommandExecuted) {
+			if (authorized) {
+				// user.chatMessage(sid, "I obey your commands, master!");
+				if (msg.substr(0, 1) === "!") {
+					cmd = msg.substr(1);
+					var p = parseCommand(cmd);
+					var f = function(msg) {
+						user.chatMessage(sid, msg);
+					};
+					runCommand(p, null, f, "steam");
+				}
+			} else {
+				// user.chatMessage(sid, "You shall not pass.");
+			}
+		}
+	});
 }
 
 function onErr(err) {
@@ -190,7 +377,12 @@ var accs = {
 var settings = {
 	autologin: true, //whether to login every account on startup
 	cmd: true, //whether to display a command line after logging in every account (only valid if autologin is true)
-	tick_delay: 10 //idle checking delay in seconds
+	tick_delay: 10, //idle checking delay in seconds
+	cmd_whitelist: [],
+	logout_via_chat: false,
+	offline_via_chat: false,
+	online_via_chat: false,
+	maximum_alarms: 10
 };
 try {
 	fs.accessSync(settingsfile, fs.constants.R_OK);
@@ -314,7 +506,7 @@ function openCMD() {
 		}
 		var p = parseCommand(trimSpaces(loopReplace(result.cmd, "  ", " ")));
 		try {
-			runCommand(p, next);
+			runCommand(p, next, console.log, "cmd");
 		} catch(err) {
 			console.log("Error running command: "+err);
 			next();
@@ -368,50 +560,79 @@ function parseCommand(cmd) {
 	// console.log("end", i, la);
 	return args;
 }
-function runCommand(cmd, callback) {
+function runCommand(cmd, callback, output, via) { //via: steam, cmd
+	var op = output;
+	if (!(op instanceof Function)) {
+		op = getDefaultOutput();
+	}
 	if (cmd[0] == "login") {
 		var acc = cmd[1];
-		if (!acc) {
-			throw Error("No account provided");
-		}
-		//login w/ acc...
-		if (!accs[acc]) {
-			throw Error("Account not in database");
-		}
-		if (users[acc]) {
-			throw Error("Account is already logged in");
-		}
-		var d = accs[acc];
-		var name = acc || d["name"];
-		var pwi = d["pw_index"];
-		var authcode = null;
-		if (pwi == undefined) {
-			pwi = null;
-		}
-		var secret = d["secret"];
-		var games = gamesVarToArray(d["games"]);
-		var online = d["online"];
-		var f = function(err, result) {
-			if (err) {
-				onErr(err);
-				return 1;
+		if (via === "steam") {
+			op("Logging in via steam chat is not possible");
+			if (callback) {
+				return callback();
+			} else {
+				return;
 			}
-			if (pwi) {
-				pws[pwi] = result.password;
+		}
+		try {
+			if (!acc) {
+				throw Error("No account provided");
 			}
-			login(name, result.password, authcode, secret, games, online, callback);
+			//login w/ acc...
+			if (!accs[acc]) {
+				throw Error("Account not in database");
+			}
+			if (users[acc]) {
+				throw Error("Account is already logged in");
+			}
+			var d = accs[acc];
+			var name = acc || d["name"];
+			var pwi = d["pw_index"];
+			var authcode = null;
+			if (pwi == undefined) {
+				pwi = null;
+			}
+			var secret = d["secret"];
+			var games = gamesVarToArray(d["games"]);
+			var online = d["online"];
+			var f = function(err, result) {
+				if (err) {
+					onErr(err);
+					return 1;
+				}
+				if (pwi) {
+					pws[pwi] = result.password;
+				}
+				login(name, result.password, authcode, secret, games, online, callback);
+			}
+			if (pwi && pws[pwi]) {
+				op("Found existing password for "+name);
+				f(0, {password: pws[pwi]});
+			} else {
+				op("Requesting password for "+name);
+				prompt.get({properties: {password: {hidden: true, replace: "*"}}}, f);
+			}
+			return;
+		} catch(err) {
+			op("Error logging in: "+err);
+			if (callback) {
+				return callback();
+			} else {
+				return;
+			}
 		}
-		if (pwi && pws[pwi]) {
-			console.log("Found existing password for "+name);
-			f(0, {password: pws[pwi]});
-		} else {
-			console.log("Requesting password for "+name);
-			prompt.get({properties: {password: {hidden: true, replace: "*"}}}, f);
-		}
-		return;
 	}
 	if (cmd[0] == "logout") {
 		var acc = cmd[1];
+		if (via === "steam" && !settings["logout_via_chat"]) {
+			op("Logging out via steam chat is disabled");
+			if (callback) {
+				return callback();
+			} else {
+				return;
+			}
+		}
 		try {
 			if (!acc) {
 				//logout every acc
@@ -431,7 +652,7 @@ function runCommand(cmd, callback) {
 				delete users[acc];
 			}
 		} catch(err) {
-			console.log("An error occured: "+err);
+			op("An error occured: "+err);
 		}
 		if (callback) {
 			return callback();
@@ -441,6 +662,14 @@ function runCommand(cmd, callback) {
 	}
 	if (cmd[0] == "online") {
 		var user = cmd[1];
+		if (via === "steam" && !settings["online_via_chat"]) {
+			op("Switching to online mode via steam chat is disabled");
+			if (callback) {
+				return callback();
+			} else {
+				return;
+			}
+		}
 		try {
 			if (!user || user == "all" || user == "*") {
 				for (var i in users) {
@@ -455,7 +684,7 @@ function runCommand(cmd, callback) {
 				updateOnlineStatus(user);
 			}
 		} catch(err) {
-			console.log("An error occured: "+err);
+			op("An error occured: "+err);
 		}
 		if (callback) {
 			return callback();
@@ -465,6 +694,14 @@ function runCommand(cmd, callback) {
 	}
 	if (cmd[0] == "offline") {
 		var user = cmd[1];
+		if (via === "steam" && !settings["offline_via_chat"]) {
+			op("Switching to offline mode via steam chat is disabled");
+			if (callback) {
+				return callback();
+			} else {
+				return;
+			}
+		}
 		try {
 			if (!user || user == "all" || user == "*") {
 				for (var i in users) {
@@ -479,7 +716,7 @@ function runCommand(cmd, callback) {
 				updateOnlineStatus(user);
 			}
 		} catch(err) {
-			console.log("An error occured: "+err);
+			op("An error occured: "+err);
 		}
 		if (callback) {
 			return callback();
@@ -488,13 +725,29 @@ function runCommand(cmd, callback) {
 		}
 	}
 	if (cmd[0] == "exit") {
+		if (via === "steam" && !settings["exit_via_chat"]) {
+			op("Exiting via steam chat is disabled");
+			if (callback) {
+				return callback();
+			} else {
+				return;
+			}
+		}
 		//kill script
 		process.exit();
 		return;
 	}
 	if (cmd[0] == "add") {
+		if (via === "steam") {
+			op("Adding accounts via steam chat is disabled");
+			if (callback) {
+				return callback();
+			} else {
+				return;
+			}
+		}
 		//add user to idleaccs.json
-		console.log("Command 'add' currently isn't supported");
+		op("Command 'add' currently isn't supported");
 		if (callback) {
 			return callback();
 		} else {
@@ -533,7 +786,75 @@ function runCommand(cmd, callback) {
 				idle(users[user], users[user].curIdling);
 			}
 		} catch(err) {
-			console.log("An error occured: "+err);
+			op("An error occured: "+err);
+		}
+		if (callback) {
+			return callback();
+		} else {
+			return;
+		}
+	}
+	if (cmd[0] == "addfriend") {
+		var frid = cmd[2];
+		var acc = cmd[1];
+		if (!frid) {
+			frid = acc;
+			acc = "*";
+		}
+		if (!acc || acc == "*" || acc == "all") {
+			acc = null;
+		}
+		if (!frid) {
+			op("No friend id specified");
+		}
+		try {
+			if (!acc) {
+				var uar = [];
+				for (var i in users) {
+					uar.push(users[i]);
+				}
+				var f = function(index) {
+					if (index >= uar.length) {
+						if (callback) {
+							return callback();
+						} else {
+							return;
+						}
+					}
+					var cb = function(){f(index + 1);};
+					var user = uar[index];
+					user.addFriend(frid, function(err, name) {
+						if (err) {
+							op("An error occured: "+err);
+							cb();
+							return;
+						}
+						op("Successfully added "+name+" ["+frid+"] with account "+user.name);
+						cb();
+					});
+				};
+				f(0);
+				return;
+			} else {
+				var user = users[acc];
+				if (!user) {
+					throw Error(acc+" currently isn't logged in");
+				}
+				user.addFriend(frid, function(err, name) {
+					if (err) {
+						throw Error(err);
+						return;
+					}
+					op("Successfully added "+name+" ["+frid+"]");
+					if (callback) {
+						return callback();
+					} else {
+						return;
+					}
+				});
+			}
+		} catch(err) {
+			op("An error occured: "+err);
 		}
 		if (callback) {
 			return callback();
@@ -542,21 +863,156 @@ function runCommand(cmd, callback) {
 		}
 	}
 	if (cmd[0] == "help") {
-		console.log("add <user>: adds a user to the database");
-		console.log("");
-		console.log("login <user>: login");
-		console.log("");
-		console.log("logout [<user>]: logout with specified user/all users");
-		console.log("");
-		console.log("idle [<user>] [<games>]: idle the specified games with the specified user");
-		console.log("~<user> is the name of the account you want to idle on");
-		console.log("no user, '*' and 'all' will result in all logged in user idling");
-		console.log("~<games> is either a list of game ids (separated with ','),\na game preset or a custom game");
-		return callback();
+		op("add <user>: adds a user to the database");
+		op("");
+		op("login <user>: login");
+		op("");
+		op("logout [<user>]: logout with specified user/all users");
+		op("");
+		op("idle [<user>] [<games>]: idle the specified games with the specified user");
+		op("~<user> is the name of the account you want to idle on");
+		op("no user, '*' and 'all' will result in all logged in user idling");
+		op("~<games> is either a list of game ids (separated with ','),\na game preset or a custom game");
+		op("");
+		op("addfriend [<user>] <newfriend>: add <newfriend> to your friend list");
+		if (callback) {
+			return callback();
+		} else {
+			return;
+		}
+	}
+	if (cmd[0] == "alarms") {
+		if (cmd[1] == "json" || true) {
+			op(JSON.stringify(alarms));
+		} else {
+			op(alarms);
+		}
+		if (callback) {
+			return callback();
+		} else {
+			return;
+		}
 	}
 	// throw Error("Unhandled command");
-	console.log("Error: Unhandled command\nEnter 'help' for a list of commands");
-	callback();
+	op("Error: Unhandled command\nEnter 'help' for a list of commands");
+	if (callback) {
+		callback();
+	}
+}
+
+function checkForPublicCommand(sid, msg, user, name) {
+	if (msg.substr(0, 1) !== "!") {
+		return false;
+	}
+	var cmd = parseCommand(msg.substr(1));
+	// console.log(cmd[0]);
+	if (cmd[0] === "8ball") {
+		var poss = [
+			"It is certain",
+			"It is decidedly so",
+			"Without a doubt",
+			"Yes, definitely",
+			"You may rely on it",
+			"As I see it, yes",
+			"Most likely",
+			// "Outlook good",
+			"Yes",
+			"Signs point to yes",
+			// "Reply hazy try again",
+			"Ask again later",
+			"Better not tell you now",
+			"Cannot predict now",
+			"Concentrate and ask again",
+			"Don't count on it",
+			"My reply is no",
+			"My sources say no",
+			// "Outlook not so good",
+			"Very doubtful",
+			"Pretty sure m8"
+		];
+		var i = Math.floor(Math.random() * poss.length);
+		var msgb = poss[i];
+		user.chatMessage(sid, msgb);
+		return true;
+	}
+	if (cmd[0] === "alarm") {
+		var time = cmd[1];
+		if (!time) {
+			user.chatMessage(sid, "No time entered");
+			return false;
+		}
+		var desc = cmd[2];
+		if (!desc) {
+			desc = "Alarm!";
+		}
+		var r = addAlarm(name, sid, time, desc);
+		if (!r) {
+			user.chatMessage(sid, "Error adding alarm");
+		} else {
+			var aDate = new Date(r);
+			user.chatMessage(sid, "Your alarm was set on " + aDate.toDateString() + " " + aDate.toTimeString());
+		}
+		return true;
+	}
+	if (cmd[0] === "date") {
+		user.chatMessage(sid, "Today is "+(new Date()).toDateString());
+		return true;
+	}
+	if (cmd[0] === "time") {
+		user.chatMessage(sid, "It's currently "+(new Date()).toTimeString());
+		return true;
+	}
+	if (cmd[0] === "coin") {
+		var poss = [
+			"Head",
+			"Tails"
+		];
+		var i = Math.floor(Math.random() * poss.length);
+		var pi = poss[i];
+		user.chatMessage(sid, "Coin Flip Result: "+pi);
+		return true;
+	}
+	if (cmd[0] === "dice") {
+		var max = parseInt(cmd[1]) || 6;
+		if (max <= 0) {
+			max = 6;
+		}
+		var i = Math.floor(Math.random() * max) + 1;
+		user.chatMessage(sid, "Dice ["+max+"] - Throw Result: "+i);
+		return true;
+	}
+	if (cmd[0] === "sid") {
+		user.chatMessage(sid, "Your steam id: "+sid.getSteam2RenderedID(true));
+		return true;
+	}
+	if (cmd[0] === "sid64") {
+		user.chatMessage(sid, "Your steam id64: "+sid.getSteamID64());
+		return true;
+	}
+	if (cmd[0] === "id") {
+		var id = cmd[1];
+		if (!id) {
+			user.chatMessage(sid, "No ID provided");
+			return true;
+		}
+		var re = /^(?:http(?:s)?:\/\/(?:www\.)?steamcommunity\.com\/id\/)?([a-zA-Z0-9]*)(?:\/)?$/;
+		var rer = re.exec(id);
+		if (!rer) {
+			user.chatMessage(sid, "Custom URL could not be parsed");
+			return true;
+		}
+		var vanu = rer[1];
+		community.getSteamUser(vanu, function(err, cuser) {
+			if (err) {
+				user.chatMessage(sid, "An error occured: "+err);
+				return 1;
+			}
+			var csid = cuser.steamID;
+			user.chatMessage(sid, "SteamID64: "+csid.getSteamID64());
+		});
+		user.chatMessage(sid, "Requested data for "+id);
+		return true;
+	}
 }
 
 if (settings["tick_delay"] > 0) {
