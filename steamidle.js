@@ -60,13 +60,12 @@ function sidToSID64(sid) {
 	return sid64;
 }
 
-function processGame(game) {
-	g = game;
-	// console.log(typeof g, g);
+function processStr(str) {
+	var g = str;
 	if ((typeof g) == "string" && g.substr(0, 1) == ":") { //clock
 		g = g.substr(1);
 		var d = new Date();
-		g = g.replaceMultiple({"%%": "%", "%H": doubleDigit(d.getHours()), "%M": doubleDigit(d.getMinutes()), "%S": doubleDigit(d.getSeconds())});
+		g = g.replaceMultiple({"%%": "%", "%H": doubleDigit(d.getHours()), "%M": doubleDigit(d.getMinutes()), "%S": doubleDigit(d.getSeconds()), "%Y": doubleDigit(d.getFullYear()), "%m": doubleDigit(d.getMonth() + 1), "%d": doubleDigit(d.getDate()), "%y": doubleDigit(d.getFullYear() - Math.floor(d.getFullYear() / 100) * 100)});
 		while (g.search("%rd") >= 0) {
 			g = g.replace("%rd", Math.floor(Math.random() * 10));
 		}
@@ -75,6 +74,40 @@ function processGame(game) {
 		}
 	}
 	return g;
+}
+
+function processGame(game) {
+	var g = game;
+	return processStr(g);
+	// if ((typeof g) == "string" && g.substr(0, 1) == ":") { //clock
+		// g = g.substr(1);
+		// var d = new Date();
+		// g = g.replaceMultiple({"%%": "%", "%H": doubleDigit(d.getHours()), "%M": doubleDigit(d.getMinutes()), "%S": doubleDigit(d.getSeconds())});
+		// while (g.search("%rd") >= 0) {
+			// g = g.replace("%rd", Math.floor(Math.random() * 10));
+		// }
+		// while (g.search("%rD") >= 0) {
+			// g = g.replace("%rD", Math.floor(Math.random() * 9) + 1);
+		// }
+	// }
+	// return g;
+}
+
+function processCustomMessage(msg) {
+	var m = msg;
+	return processStr(m);
+	// if ((typeof m) == "string" && m.substr(0, 1) == ":") {
+		// m = m.substr(1);
+		// var d = new Date();
+		// g = g.replaceMultiple({"%%": "%", "%H": doubleDigit(d.getHours()), "%M": doubleDigit(d.getMinutes()), "%S": doubleDigit(d.getSeconds())});
+		// while (g.search("%rd") >= 0) {
+			// g = g.replace("%rd", Math.floor(Math.random() * 10));
+		// }
+		// while (g.search("%rD") >= 0) {
+			// g = g.replace("%rD", Math.floor(Math.random() * 9) + 1);
+		// }
+	// }
+	// return m;
 }
 
 function processGamesArray(games) {
@@ -419,7 +452,7 @@ function login(name, pw, authcode, secret, games, online, callback, opts) {
 				// user.chatMessage(sid, "You shall not pass.");
 			}
 		}
-		if (user.redirectTo && !publicCommandExecuted && !privateCommandExecuted && msg.substr(0, 1) != "!") {
+		if (user.redirectTo && !publicCommandExecuted && !privateCommandExecuted && msg.substr(0, 1) != "!" && user.steamID !== user.redirectTo && user.steamID.getSteamID64() !== user.redirectTo) {
 			user.getPersonas([sid], function(personas) {
 				
 				var sid64 = sidToSID64(sid);
@@ -1099,7 +1132,7 @@ function runCommand(cmd, callback, output, via) { //via: steam, cmd
 				if (!users[acc]) {
 					throw Error(acc+" currently isn't logged in");
 				}
-				var user = users[i];
+				var user = users[acc];
 				user.redirectTo = red2;
 				if (red2) {
 					op("Activated redirection for "+acc);
@@ -1320,6 +1353,18 @@ function checkForPublicCommand(sid, msg, user, name) {
 		});
 		user.chatMessage(sid, "Requested data for "+id);
 		return true;
+	}
+	for (var i in settings["customcmds"]) {
+		if (cmd[0] == i) {
+			var m = settings["customcmds"][i];
+			if (!(m instanceof Array)) {
+				m = [m];
+			}
+			for (var i1 = 0; i1 < m.length; i1++) {
+				user.chatMessage(sid, processCustomMessage(m[i1]));
+			}
+			return true;
+		}
 	}
 }
 
