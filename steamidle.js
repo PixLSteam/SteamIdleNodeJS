@@ -382,7 +382,8 @@ var settings = {
 	logout_via_chat: false,
 	offline_via_chat: false,
 	online_via_chat: false,
-	maximum_alarms: 10
+	maximum_alarms: 10,
+	public_chat_bot: true
 };
 try {
 	fs.accessSync(settingsfile, fs.constants.R_OK);
@@ -446,6 +447,7 @@ function gamesVarToArray(v) {
 		if (game_presets[v]) {
 			return game_presets[v];
 		}
+		return [v];
 	}
 	return v;
 }
@@ -777,6 +779,7 @@ function runCommand(cmd, callback, output, via) { //via: steam, cmd
 				for (var i in users) {
 					users[i].curIdling = games;
 					idle(users[i], users[i].curIdling);
+					op(i+" is now idling "+games.length+" game"+(games.length == 1 ? "" : "s"));
 				}
 			} else {
 				if (!users[user]) {
@@ -784,6 +787,7 @@ function runCommand(cmd, callback, output, via) { //via: steam, cmd
 				}
 				users[user].curIdling = games;
 				idle(users[user], users[user].curIdling);
+				op(user+" is now idling "+games.length+" game"+(games.length == 1 ? "" : "s"));
 			}
 		} catch(err) {
 			op("An error occured: "+err);
@@ -862,6 +866,48 @@ function runCommand(cmd, callback, output, via) { //via: steam, cmd
 			return;
 		}
 	}
+	if (cmd[0] == "msg") {
+		var msg = cmd[3];
+		var frid = cmd[2];
+		var acc = cmd[1];
+		if (!msg && frid) {
+			msg = frid;
+			frid = acc;
+			acc = "*";
+		}
+		if (!acc || acc == "*" || acc == "all") {
+			acc = null;
+		}
+		if (!msg) {
+			op("No message specified");
+		}
+		if (!frid) {
+			op("No friend id specified");
+		}
+		try {
+			if (!acc) {
+				for (var i in users) {
+					try {
+						users[i].chatMessage(frid, msg);
+					} catch(err) {
+						op("An error occured: "+err);
+					}
+				}
+			} else {
+				if (!users[acc]) {
+					throw Error(acc+" currently isn't logged in");
+				}
+				users[acc].chatMessage(frid, msg);
+			}
+		} catch(err) {
+			op("An error occured: "+err);
+		}
+		if (callback) {
+			return callback();
+		} else {
+			return;
+		}
+	}
 	if (cmd[0] == "help") {
 		op("add <user>: adds a user to the database");
 		op("");
@@ -901,6 +947,9 @@ function runCommand(cmd, callback, output, via) { //via: steam, cmd
 }
 
 function checkForPublicCommand(sid, msg, user, name) {
+	if (!settings["public_chat_bot"]) {
+		return false;
+	}
 	if (msg.substr(0, 1) !== "!") {
 		return false;
 	}
