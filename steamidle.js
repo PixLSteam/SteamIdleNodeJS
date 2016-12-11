@@ -371,7 +371,8 @@ var game_presets = {
 	],
 	stop: [],
 	idling: ["~Idling~"],
-	clock: [":%H:%M"]
+	clock: [":%H:%M"],
+	steam4linux: [221410]
 };
 var accs = {
 };
@@ -385,7 +386,19 @@ var settings = {
 	online_via_chat: false,
 	maximum_alarms: 10,
 	public_chat_bot: true,
-	autoaccept: true //whether to automatically accept friend requests, has to be turned on for every account by setting autoaccept_min_lvl to 0 or higher[CURRENTLY NOT SUPPORTED DUE TO MISSING EVENT/METHODS]
+	autoaccept: true, //whether to automatically accept friend requests, has to be turned on for every account by setting autoaccept_min_lvl to 0 or higher[CURRENTLY NOT SUPPORTED DUE TO MISSING EVENT/METHODS]
+	time_special: [
+		{
+			h: [4, 16],
+			m: [20],
+			msg: "Time 2 blaze!"
+		},
+		{
+			h: [13],
+			m: [37],
+			msg: "Time 4 h4x"
+		}
+	]
 };
 try {
 	fs.accessSync(settingsfile, fs.constants.R_OK);
@@ -1010,7 +1023,24 @@ function checkForPublicCommand(sid, msg, user, name) {
 		return true;
 	}
 	if (cmd[0] === "time") {
-		user.chatMessage(sid, "It's currently "+(new Date()).toTimeString());
+		var curDate = new Date();
+		var tmsg = "It's currently "+(curDate).toTimeString();
+		var stm = false;
+		var stmsgs = settings["time_special"];
+		for (var i in stmsgs) {
+			if (!(stmsgs[i] instanceof Object)) {
+				continue;
+			}
+			var hs = stmsgs[i]["h"];
+			var ms = stmsgs[i]["m"];
+			var smsg = stmsgs[i]["msg"];
+			if ((!hs || hs.includes(curDate.getHours())) && (!ms || ms.includes(curDate.getMinutes()))) {
+				stm = true;
+				tmsg = tmsg + " - " + smsg;
+				break;
+			}
+		}
+		user.chatMessage(sid, tmsg);
 		return true;
 	}
 	if (cmd[0] === "coin") {
