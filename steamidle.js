@@ -48,6 +48,18 @@ function getDefaultOutput() {
 	return console.log;
 }
 
+function sidToSID64(sid) {
+	var sid64 = sid;
+	if ((typeof sid64) !== "string") {
+		try {
+			sid64 = sid64.getSteamID64();
+		} catch(err) {
+			
+		}
+	}
+	return sid64;
+}
+
 function processGame(game) {
 	g = game;
 	// console.log(typeof g, g);
@@ -78,6 +90,68 @@ function processGamesArray(games) {
 
 function idle(user, games) {
 	user.gamesPlayed(processGamesArray(games));
+}
+
+function checkFriends(user) {
+	var friends = user.myFriends;
+	var frs = {};
+	for (var i in friends) {
+		var rs = friends[i];
+		if (!frs[rs]) {
+			frs[rs] = [];
+		}
+		frs[rs].push(i);
+	}
+	for (var rs in frs) {
+		var rss = SteamUser.EFriendRelationship[rs];
+		for (var fr in frs[rs]) {
+			var sid64 = frs[rs][fr];
+			console.log(rss+"|"+sid64);
+		}
+	}
+}
+
+var friendRequests = {};
+
+function checkFriendRequest(user, fr) {
+	var autoaccept_min_lvl = (user.opts || {}).autoaccept_min_lvl;
+	user.getSteamLevels([fr], function(results) {
+		var ulvl = results[fr];
+		if (autoaccept_min_lvl >= 0 && autoaccept_min_lvl <= ulvl) {
+			//accept
+			user.addFriend(fr);
+			user.chatMessage(fr, "Hey there! You got accepted by the bot.");
+		} else {
+			//cancel or 'ignore'
+			if (settings["autoaccept_cancel_lowlvl"]) {
+				user.removeFriend(fr);
+			} else {
+				//do nothing
+			}
+		}
+	});
+}
+
+function checkForFriendRequests(user) {
+	if (!settings["autoaccept"]) {
+		return;
+	}
+	var autoaccept_min_lvl = (user.opts || {}).autoaccept_min_lvl;
+	if (autoaccept_min_lvl < 0) {
+		return;
+	}
+	var friends = user.myFriends;
+	for (var i in friends) {
+		if (friends[i] == SteamUser.EFriendRelationship.RequestRecipient) {
+			if (!friendRequests[user.name]) {
+				friendRequests[user.name] = {};
+			}
+			if (!friendRequests[user.name][i]) {
+				friendRequests[user.name][i] = true;
+				checkFriendRequest(user, i);
+			}
+		}
+	}
 }
 
 function parsePeriod(period) {
@@ -222,6 +296,7 @@ function tick() {
 		idle(users[i], users[i].curIdling);
 		// users[i].setPersona(users[i].isOnline && SteamUser.Steam.EPersonaState.Online || SteamUser.Steam.EPersonaState.Offline);
 		updateOnlineStatus(i);
+		checkForFriendRequests(users[i]);
 	}
 	checkAlarms();
 }
@@ -328,6 +403,7 @@ function login(name, pw, authcode, secret, games, online, callback, opts) {
 		if (r) {
 			publicCommandExecuted = true;
 		}
+		var privateCommandExecuted = false;
 		if (!publicCommandExecuted) {
 			if (authorized) {
 				// user.chatMessage(sid, "I obey your commands, master!");
@@ -337,11 +413,19 @@ function login(name, pw, authcode, secret, games, online, callback, opts) {
 					var f = function(msg) {
 						user.chatMessage(sid, msg);
 					};
-					runCommand(p, null, f, "steam");
+					privateCommandExecuted = runCommand(p, null, f, "steam");
 				}
 			} else {
 				// user.chatMessage(sid, "You shall not pass.");
 			}
+		}
+		if (user.redirectTo && !publicCommandExecuted && !privateCommandExecuted && msg.substr(0, 1) == "!") {
+			user.getPersonas([sid], function(personas) {
+				
+				var sid64 = sidToSID64(sid);
+				console.log(user.redirectTo, personas, personas[sid64]);
+				user.chatMessage(user.redirectTo, "Message from "+((personas[sid64] || {})["player_name"] || "Unknown")+" ["+sid64+"]: "+msg);
+			});
 		}
 	});
 }
@@ -398,7 +482,8 @@ var settings = {
 			m: [37],
 			msg: "Time 4 h4x"
 		}
-	]
+	],
+	autoaccept_cancel_lowlvl: false
 };
 try {
 	fs.accessSync(settingsfile, fs.constants.R_OK);
@@ -589,7 +674,7 @@ function runCommand(cmd, callback, output, via) { //via: steam, cmd
 			if (callback) {
 				return callback();
 			} else {
-				return;
+				return true;
 			}
 		}
 		try {
@@ -636,7 +721,7 @@ function runCommand(cmd, callback, output, via) { //via: steam, cmd
 			if (callback) {
 				return callback();
 			} else {
-				return;
+				return true;
 			}
 		}
 	}
@@ -647,7 +732,7 @@ function runCommand(cmd, callback, output, via) { //via: steam, cmd
 			if (callback) {
 				return callback();
 			} else {
-				return;
+				return true;
 			}
 		}
 		try {
@@ -674,7 +759,7 @@ function runCommand(cmd, callback, output, via) { //via: steam, cmd
 		if (callback) {
 			return callback();
 		} else {
-			return;
+			return true;
 		}
 	}
 	if (cmd[0] == "online") {
@@ -684,7 +769,7 @@ function runCommand(cmd, callback, output, via) { //via: steam, cmd
 			if (callback) {
 				return callback();
 			} else {
-				return;
+				return true;
 			}
 		}
 		try {
@@ -706,7 +791,7 @@ function runCommand(cmd, callback, output, via) { //via: steam, cmd
 		if (callback) {
 			return callback();
 		} else {
-			return;
+			return true;
 		}
 	}
 	if (cmd[0] == "offline") {
@@ -716,7 +801,7 @@ function runCommand(cmd, callback, output, via) { //via: steam, cmd
 			if (callback) {
 				return callback();
 			} else {
-				return;
+				return true;
 			}
 		}
 		try {
@@ -738,7 +823,7 @@ function runCommand(cmd, callback, output, via) { //via: steam, cmd
 		if (callback) {
 			return callback();
 		} else {
-			return;
+			return true;
 		}
 	}
 	if (cmd[0] == "exit") {
@@ -747,12 +832,12 @@ function runCommand(cmd, callback, output, via) { //via: steam, cmd
 			if (callback) {
 				return callback();
 			} else {
-				return;
+				return true;
 			}
 		}
 		//kill script
 		process.exit();
-		return;
+		return true;
 	}
 	if (cmd[0] == "add") {
 		if (via === "steam") {
@@ -760,7 +845,7 @@ function runCommand(cmd, callback, output, via) { //via: steam, cmd
 			if (callback) {
 				return callback();
 			} else {
-				return;
+				return true;
 			}
 		}
 		//add user to idleaccs.json
@@ -768,7 +853,7 @@ function runCommand(cmd, callback, output, via) { //via: steam, cmd
 		if (callback) {
 			return callback();
 		} else {
-			return;
+			return true;
 		}
 	}
 	if (cmd[0] == "idle") {
@@ -810,7 +895,7 @@ function runCommand(cmd, callback, output, via) { //via: steam, cmd
 		if (callback) {
 			return callback();
 		} else {
-			return;
+			return true;
 		}
 	}
 	if (cmd[0] == "addfriend") {
@@ -878,7 +963,7 @@ function runCommand(cmd, callback, output, via) { //via: steam, cmd
 		if (callback) {
 			return callback();
 		} else {
-			return;
+			return true;
 		}
 	}
 	if (cmd[0] == "msg") {
@@ -920,7 +1005,104 @@ function runCommand(cmd, callback, output, via) { //via: steam, cmd
 		if (callback) {
 			return callback();
 		} else {
-			return;
+			return true;
+		}
+	}
+	if (cmd[0] == "wallet") {
+		var acc = cmd[1];
+		if (!acc) {
+			var total = {};
+			for (var i in users) {
+				var user = users[i];
+				var wal = user.wallet;
+				if (wal) {
+					if (!wal.hasWallet) {
+						op(i+" doesn't have a wallet");
+					} else {
+						var bal = wal.balance;
+						var cur = wal.currency;
+						if (!total[cur]) {
+							total[cur] = 0;
+						}
+						total[cur] += bal;
+						op(i+" has a wallet balance of "+SteamUser.formatCurrency(bal, cur));
+					}
+					op("No wallet found for "+i);
+				}
+			}
+			op("Total:");
+			for (var cur in total) {
+				var bal = total[cur];
+				op("\t"+SteamUser.formatCurrency(bal, cur));
+			}
+		} else {
+			try {
+				if (!users[acc]) {
+					throw Error(acc+" currently isn't logged in");
+				}
+				var user = users[acc];
+				var wal = user.wallet;
+				if (wal) {
+					if (!wal.hasWallet) {
+						op(acc+" doesn't have a wallet");
+					} else {
+						var bal = wal.balance;
+						var cur = wal.currency;
+						op(acc+" has a wallet balance of "+SteamUser.formatCurrency(bal, cur));
+					}
+					op("No wallet found for "+i);
+				}
+			} catch(err) {
+				op("An error occured: "+err);
+			}
+		}
+		if (callback) {
+			return callback();
+		} else {
+			return true;
+		}
+	}
+	if (cmd[0] == "redirect") {
+		//redirectTo
+		var acc = cmd[1];
+		var to = cmd[2];
+		if (!acc || acc == "*" || acc == "all") {
+			acc = null;
+		}
+		var red2 = to;
+		if (red2 && users[red2]) {
+			red2 = users[red2].steamID;
+		}
+		if (!acc) {
+			for (var i in users) {
+				var user = users[i];
+				user.redirectTo = red2;
+				if (red2) {
+					op("Activated redirection for "+i);
+				} else {
+					op("Deactivated redirection for "+i);
+				}
+			}
+		} else {
+			try {
+				if (!users[acc]) {
+					throw Error(acc+" currently isn't logged in");
+				}
+				var user = users[i];
+				user.redirectTo = red2;
+				if (red2) {
+					op("Activated redirection for "+acc);
+				} else {
+					op("Deactivated redirection for "+acc);
+				}
+			} catch(err) {
+				op("An error occured: "+err);
+			}
+		}
+		if (callback) {
+			return callback();
+		} else {
+			return true;
 		}
 	}
 	if (cmd[0] == "help") {
@@ -939,7 +1121,7 @@ function runCommand(cmd, callback, output, via) { //via: steam, cmd
 		if (callback) {
 			return callback();
 		} else {
-			return;
+			return true;
 		}
 	}
 	if (cmd[0] == "alarms") {
@@ -951,7 +1133,40 @@ function runCommand(cmd, callback, output, via) { //via: steam, cmd
 		if (callback) {
 			return callback();
 		} else {
-			return;
+			return true;
+		}
+	}
+	if (cmd[0] == "friends") {
+		if (via == "steam") {
+			op("Cannot list friends via steam");
+			if (callback) {
+				return callback();
+			} else {
+				return true;
+			}
+		}
+		var acc = cmd[1];
+		if (!acc || acc == "*" || acc == "all") {
+			acc = null;
+		}
+		if (!acc) {
+			for (var i in users) {
+				checkFriends(users[i]);
+			}
+		} else {
+			try {
+				if (!users[acc]) {
+					throw(acc+" currently isn't logged in");
+				}
+				checkFriends(users[acc]);
+			} catch(err) {
+				op("An error occured: "+err);
+			}
+		}
+		if (callback) {
+			return callback();
+		} else {
+			return true;
 		}
 	}
 	// throw Error("Unhandled command");
@@ -959,6 +1174,7 @@ function runCommand(cmd, callback, output, via) { //via: steam, cmd
 	if (callback) {
 		callback();
 	}
+	return false;
 }
 
 function checkForPublicCommand(sid, msg, user, name) {
