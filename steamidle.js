@@ -419,7 +419,7 @@ function login(name, pw, authcode, secret, games, online, callback, opts) {
 				// user.chatMessage(sid, "You shall not pass.");
 			}
 		}
-		if (user.redirectTo && !publicCommandExecuted && !privateCommandExecuted && msg.substr(0, 1) == "!") {
+		if (user.redirectTo && !publicCommandExecuted && !privateCommandExecuted && msg.substr(0, 1) != "!") {
 			user.getPersonas([sid], function(personas) {
 				
 				var sid64 = sidToSID64(sid);
