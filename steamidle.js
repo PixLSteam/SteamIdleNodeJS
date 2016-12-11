@@ -483,7 +483,10 @@ var settings = {
 			msg: "Time 4 h4x"
 		}
 	],
-	autoaccept_cancel_lowlvl: false
+	autoaccept_cancel_lowlvl: false,
+	customcmds: {
+		github: "https://github.com/PixLSteam/SteamIdleNodeJS"
+	}
 };
 try {
 	fs.accessSync(settingsfile, fs.constants.R_OK);
@@ -494,7 +497,13 @@ try {
 			throw Error("Parsed JSON is not an object");
 		}
 		for (var i in pdata) {
-			settings[i] = pdata[i];
+			if (pdata[i] instanceof Object && !(pdata[i] instanceof Array) && settings[i] instanceof Object && !(settings[i] instanceof Array)) {
+				for (var i2 in pdata[i]) {
+					settings[i][i2] = pdata[i][i2];
+				}
+			} else {
+				settings[i] = pdata[i];
+			}
 		}
 	} catch(err) {
 		console.log("Couldn't parse settings file: "+err);
@@ -1027,6 +1036,7 @@ function runCommand(cmd, callback, output, via) { //via: steam, cmd
 						total[cur] += bal;
 						op(i+" has a wallet balance of "+SteamUser.formatCurrency(bal, cur));
 					}
+				} else {
 					op("No wallet found for "+i);
 				}
 			}
@@ -1050,6 +1060,7 @@ function runCommand(cmd, callback, output, via) { //via: steam, cmd
 						var cur = wal.currency;
 						op(acc+" has a wallet balance of "+SteamUser.formatCurrency(bal, cur));
 					}
+				} else {
 					op("No wallet found for "+i);
 				}
 			} catch(err) {
