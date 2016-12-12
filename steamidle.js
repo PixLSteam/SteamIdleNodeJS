@@ -21,8 +21,57 @@ function reverseString(str) {
 	return s;
 }
 
-Date.prototype.addDays = function(days)
-{
+function getDefaultReplaceObject() {
+	return {
+		"%%": "%"
+	}
+}
+
+function getTimeReplaceObject(time) {
+	var curDate;
+	if (time) {
+		curDate = new Date(time);
+	} else {
+		curDate = new Date();
+	}
+	var d = curDate;
+	return {
+		"%H": doubleDigit(d.getHours()),
+		"%M": doubleDigit(d.getMinutes()),
+		"%S": doubleDigit(d.getSeconds()),
+		"%Y": doubleDigit(d.getFullYear()),
+		"%m": doubleDigit(d.getMonth() + 1),
+		"%d": doubleDigit(d.getDate()),
+		"%y": doubleDigit(d.getFullYear() - Math.floor(d.getFullYear() / 100) * 100)
+	}
+}
+
+function combineObjects(obj1, obj2) {
+	var ar = [];
+	if (obj1 instanceof Array) {
+		ar = ar.concat(obj1);
+	} else {
+		ar.push(obj1);
+	}
+	if (obj2 instanceof Array) {
+		ar = ar.concat(obj2);
+	} else if (obj2) {
+		ar.push(obj2);
+	}
+	// console.log(obj1, obj2, ar);
+	var obj = {};
+	for (var i = 0; i < ar.length; i++) {
+		// console.log(i);
+		for (var i1 in ar[i]) {
+			// console.log(i, i1);
+			obj[i1] = ar[i][i1];
+		}
+	}
+	// console.log(obj);
+	return obj;
+}
+
+Date.prototype.addDays = function(days) {
 	var dat = new Date(this.valueOf());
 	dat.setDate(dat.getDate() + days);
 	return dat;
@@ -60,12 +109,35 @@ function sidToSID64(sid) {
 	return sid64;
 }
 
+function formatCurrency(bal, cur) {
+	var cc = {
+		USD: "$",
+		EUR: "€",
+		CAD: "$",
+		GBP: "£",
+		AUD: "$",
+		RUB: "Руб",
+		JPY: "¥",
+		CHF: "Fr.",
+		BTC: "฿"
+	};
+	var curc = SteamUser.ECurrencyCode[cur];
+	if (!curc) {
+		return "" + bal;
+	}
+	if (cc[curc]) {
+		return bal + " " + cc[curc];
+	} else {
+		return SteamUser.formatCurrency(bal, cur);
+	}
+}
+
 function processStr(str) {
 	var g = str;
 	if ((typeof g) == "string" && g.substr(0, 1) == ":") { //clock
 		g = g.substr(1);
 		var d = new Date();
-		g = g.replaceMultiple({"%%": "%", "%H": doubleDigit(d.getHours()), "%M": doubleDigit(d.getMinutes()), "%S": doubleDigit(d.getSeconds()), "%Y": doubleDigit(d.getFullYear()), "%m": doubleDigit(d.getMonth() + 1), "%d": doubleDigit(d.getDate()), "%y": doubleDigit(d.getFullYear() - Math.floor(d.getFullYear() / 100) * 100)});
+		g = g.replaceMultiple(combineObjects([getDefaultReplaceObject(), getTimeReplaceObject()]));
 		while (g.search("%rd") >= 0) {
 			g = g.replace("%rd", Math.floor(Math.random() * 10));
 		}
@@ -145,21 +217,42 @@ function checkFriends(user) {
 }
 
 var friendRequests = {};
+var aFriendRequests = {};
 
 function checkFriendRequest(user, fr) {
 	var autoaccept_min_lvl = (user.opts || {}).autoaccept_min_lvl;
 	user.getSteamLevels([fr], function(results) {
 		var ulvl = results[fr];
+		if (!aFriendRequests[user.name]) {
+			aFriendRequests[user.name] = {};
+		}
 		if (autoaccept_min_lvl >= 0 && autoaccept_min_lvl <= ulvl) {
 			//accept
-			user.addFriend(fr);
-			user.chatMessage(fr, "Hey there! You got accepted by the bot.");
+			aFriendRequests[user.name][fr] = "+";
+			user.addFriend(fr, function(err, name) {
+				if (err) {
+					return;
+				}
+				var acm = settings["autoaccept_msgs"] || settings["autoaccept_msg"];
+				if ((typeof acm) == "string") {
+					acm = [acm];
+				}
+				if (!(acm instanceof Array)) {
+					acm = ["Hey there! You got accepted by the bot."];
+				}
+				for (var i = 0; i < acm.length; i++) {
+					user.chatMessage(fr, acm[i].replaceMultiple(combineObjects([getDefaultReplaceObject(), getTimeReplaceObject(), {"%n": name}])));
+				}
+			});
+			// user.chatMessage(fr, "Hey there! You got accepted by the bot.");
 		} else {
 			//cancel or 'ignore'
 			if (settings["autoaccept_cancel_lowlvl"]) {
+				aFriendRequests[user.name][fr] = "-";
 				user.removeFriend(fr);
 			} else {
 				//do nothing
+				aFriendRequests[user.name][fr] = "~";
 			}
 		}
 	});
@@ -184,6 +277,29 @@ function checkForFriendRequests(user) {
 				checkFriendRequest(user, i);
 			}
 		}
+	}
+}
+
+function checkNewFriends(user, op) {
+	var name = (user || {}).name || user;
+	if (!aFriendRequests[name]) {
+		op("No friend requests found for "+name);
+		return;
+	}
+	for (var frid in aFriendRequests[name]) {
+		var state = aFriendRequests[name][frid];
+		if (state == "+") {
+			msg = "was accepted by the bot";
+		} else if (state == "~") {
+			// msg = "was ignored by the bot. You may judge if he's worthy to be on your friend list";
+			// msg = "was ignored by the bot";
+			msg = "(OPEN FRIEND REQUEST)";
+		} else if (state == "-") {
+			msg = "was denied by the bot";
+		} else {
+			msg = "has no valid request state";
+		}
+		op(name+": http://steamcommunity.com/profiles/"+frid+" "+msg);
 	}
 }
 
@@ -309,9 +425,10 @@ function addAlarm(user, sid, str, msg) {
 	if (ualarms.length >= settings["maximum_alarms"]) {
 		return false;
 	}
-	ualarms.push({time: altime, desc: msg});
+	var obj = {time: altime, desc: msg, id: Math.floor(Math.random() * Math.pow(10, 5))};
+	ualarms.push(obj);
 	alarms[user][sid64] = ualarms;
-	return altime;
+	return obj;
 }
 
 function updateOnlineStatus(name) {
@@ -518,7 +635,8 @@ var settings = {
 	],
 	autoaccept_cancel_lowlvl: false,
 	customcmds: {
-		github: "https://github.com/PixLSteam/SteamIdleNodeJS"
+		github: "https://github.com/PixLSteam/SteamIdleNodeJS",
+		owner: "PixL owns me and all"
 	}
 };
 try {
@@ -1031,6 +1149,7 @@ function runCommand(cmd, callback, output, via) { //via: steam, cmd
 				for (var i in users) {
 					try {
 						users[i].chatMessage(frid, msg);
+						op("Message to "+frid+" was sent by "+i);
 					} catch(err) {
 						op("An error occured: "+err);
 					}
@@ -1040,6 +1159,7 @@ function runCommand(cmd, callback, output, via) { //via: steam, cmd
 					throw Error(acc+" currently isn't logged in");
 				}
 				users[acc].chatMessage(frid, msg);
+				op("Message to "+frid+" was sent by "+acc);
 			}
 		} catch(err) {
 			op("An error occured: "+err);
@@ -1067,7 +1187,7 @@ function runCommand(cmd, callback, output, via) { //via: steam, cmd
 							total[cur] = 0;
 						}
 						total[cur] += bal;
-						op(i+" has a wallet balance of "+SteamUser.formatCurrency(bal, cur));
+						op(i+" has a wallet balance of "+formatCurrency(bal, cur));
 					}
 				} else {
 					op("No wallet found for "+i);
@@ -1076,7 +1196,7 @@ function runCommand(cmd, callback, output, via) { //via: steam, cmd
 			op("Total:");
 			for (var cur in total) {
 				var bal = total[cur];
-				op("\t"+SteamUser.formatCurrency(bal, cur));
+				op("\t"+formatCurrency(bal, cur));
 			}
 		} else {
 			try {
@@ -1091,7 +1211,7 @@ function runCommand(cmd, callback, output, via) { //via: steam, cmd
 					} else {
 						var bal = wal.balance;
 						var cur = wal.currency;
-						op(acc+" has a wallet balance of "+SteamUser.formatCurrency(bal, cur));
+						op(acc+" has a wallet balance of "+formatCurrency(bal, cur));
 					}
 				} else {
 					op("No wallet found for "+i);
@@ -1149,7 +1269,59 @@ function runCommand(cmd, callback, output, via) { //via: steam, cmd
 			return true;
 		}
 	}
-	if (cmd[0] == "help") {
+	if (cmd[0] == "newfriends") {
+		var cmd1 = cmd[1];
+		var acc = cmd[2];
+		if (cmd1 == "clear") {
+			if (!acc) {
+				aFriendRequests = {};
+				op("Cleared the friend request history for all accounts");
+			} else {
+				try {
+					if (!aFriendRequests[acc]) {
+						throw Error("No friend requests were found for "+acc);
+					}
+					delete aFriendRequests[acc];
+					op("Cleared the friend request history for "+acc);
+				} catch(err) {
+					op("An error occured: "+err);
+				}
+			}
+			if (callback) {
+				return callback();
+			} else {
+				return;
+			}
+		}
+		if (true) {//list
+			if (!acc) {
+				if (cmd1 != "list") {
+					acc = cmd1;
+				}
+			}
+			if (!acc || acc == "*" || acc == "all") {
+				acc = null;
+			}
+			if (!acc) {
+				var ex = false;
+				for (var i in aFriendRequests) {
+					ex = true;
+					checkNewFriends(i, op);
+				}
+				if (!ex) {
+					op("No friend requests found");
+				}
+			} else {
+				checkNewFriends(acc, op);
+			}
+			if (callback) {
+				return callback();
+			} else {
+				return;
+			}
+		}
+	}
+	if ((["help", "ahelp", "admin"]).includes(cmd[0])) {
 		op("add <user>: adds a user to the database");
 		op("");
 		op("login <user>: login");
@@ -1256,7 +1428,7 @@ function checkForPublicCommand(sid, msg, user, name) {
 		];
 		var i = Math.floor(Math.random() * poss.length);
 		var msgb = poss[i];
-		user.chatMessage(sid, msgb);
+		user.chatMessage(sid, "Magic 8ball says: "+msgb);
 		return true;
 	}
 	if (cmd[0] === "alarm") {
@@ -1264,6 +1436,62 @@ function checkForPublicCommand(sid, msg, user, name) {
 		if (!time) {
 			user.chatMessage(sid, "No time entered");
 			return false;
+		}
+		if (time == "list") {
+			if (!alarms[name] || !alarms[name][sid.getSteamID64()] || alarms[name][sid.getSteamID64()].length <= 0) {
+				user.chatMessage(sid, "No alarms were found");
+			} else {
+				for (var i in alarms[name][sid.getSteamID64()]) {
+					var obj = alarms[name][sid.getSteamID64()][i];
+					var id = obj["id"];
+					var tim = obj["time"];
+					var desc = obj["desc"];
+					var timd = new Date(tim);
+					user.chatMessage(sid, "Alarm "+id+" at "+timd.toDateString()+" "+timd.toTimeString()+": "+desc);
+				}
+			}
+			return true;
+		}
+		if (time == "rmv" || time == "remove") {
+			var rid = cmd[2];
+			if (!rid) {
+				user.chatMessage(sid, "No alarm id supplied\nFor clearing all alarms, please use '!alarm clear'");
+				return true;
+			}
+			if (!alarms[name] || !alarms[name][sid.getSteamID64()] || alarms[name][sid.getSteamID64()].length <= 0) {
+				user.chatMessage(sid, "No alarms were found");
+			} else {
+				var c = false;
+				while (true) {
+					c = false;
+					for (var i in alarms[name][sid.getSteamID64()]) {
+						var obj = alarms[name][sid.getSteamID64()][i];
+						var id = obj["id"];
+						var tim = obj["time"];
+						var desc = obj["desc"];
+						if (id == rid) {
+							var timd = new Date(tim);
+							user.chatMessage(sid, "Alarm "+id+" at "+timd.toDateString()+" "+timd.toTimeString()+" with description '"+desc+"' was removed");
+							alarms[name][sid.getSteamID64()].splice(i, 1);
+							c = true;
+							break;
+						}
+					}
+					if (!c) {
+						break;
+					}
+				}
+			}
+			return true;
+		}
+		if (time == "clr" || time == "clear") {
+			if (!alarms[name] || !alarms[name][sid.getSteamID64()] || alarms[name][sid.getSteamID64()].length <= 0) {
+				user.chatMessage(sid, "No alarms were found");
+			} else {
+				delete alarms[name][sid.getSteamID64()];
+				user.chatMessage(sid, "Cleared all alarms");
+			}
+			return true;
 		}
 		var desc = cmd[2];
 		if (!desc) {
@@ -1273,8 +1501,8 @@ function checkForPublicCommand(sid, msg, user, name) {
 		if (!r) {
 			user.chatMessage(sid, "Error adding alarm");
 		} else {
-			var aDate = new Date(r);
-			user.chatMessage(sid, "Your alarm was set on " + aDate.toDateString() + " " + aDate.toTimeString());
+			var aDate = new Date(r["time"]);
+			user.chatMessage(sid, "Your alarm ["+r["id"]+"] was set on " + aDate.toDateString() + " " + aDate.toTimeString());
 		}
 		return true;
 	}
@@ -1371,6 +1599,9 @@ function checkForPublicCommand(sid, msg, user, name) {
 if (settings["tick_delay"] > 0) {
 	setInterval(tick, (settings["tick_delay"] || 10) * 1000);
 }
+
+// console.log(getDefaultReplaceObject(), getTimeReplaceObject(), combineObjects([getDefaultReplaceObject(), getTimeReplaceObject()]));
+// combineObjects([getDefaultReplaceObject(), getTimeReplaceObject()]);
 
 if (settings["autologin"]) {
 	doAccId(0);
