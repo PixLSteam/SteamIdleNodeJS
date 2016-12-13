@@ -1433,8 +1433,8 @@ function runCommand(cmd, callback, output, via) { //via: steam, cmd
 		if (def) {
 			msg = settings["afk_defaultmsg"];
 		}
-		if ((typeof msg) !== "string") {
-			op("There was an error setting the afk message. The message doesn't seem to be a string");
+		if ((typeof msg) !== "string" && !(msg instanceof Array)) {
+			op("There was an error setting the afk message. The message doesn't seem to be a string or array");
 			msg = "I'm afk";
 		}
 		if (!acc) {
