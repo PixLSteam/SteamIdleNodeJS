@@ -312,6 +312,7 @@ function checkFriendRequest(user, fr) {
 				for (var i = 0; i < acm.length; i++) {
 					user.chatMessage(fr, acm[i].replaceMultiple(combineObjects([getDefaultReplaceObject(), getTimeReplaceObject(), {"%n": name}])));
 				}
+				delete friendRequests[user.name][fr];
 			});
 			// user.chatMessage(fr, "Hey there! You got accepted by the bot.");
 		} else {
@@ -319,6 +320,7 @@ function checkFriendRequest(user, fr) {
 			if (settings["autoaccept_cancel_lowlvl"]) {
 				aFriendRequests[user.name][fr] = "-";
 				user.removeFriend(fr);
+				delete friendRequests[user.name][fr];
 			} else {
 				//do nothing
 				aFriendRequests[user.name][fr] = "~";
