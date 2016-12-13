@@ -652,7 +652,7 @@ function login(name, pw, authcode, secret, games, online, callback, opts) {
 				user.chatMessage(user.redirectTo, "Message from "+((personas[sid64] || {})["player_name"] || "Unknown")+" ["+sid64+"]: "+msg);
 			});
 		}
-		if (msg.substr(0, 1) !== "!" && user.afkMsg) {
+		if (msg.substr(0, 1) !== "!" && (typeof user.afkMsg) == "string") {
 			var f = false;
 			for (var i in users) {
 				// console.log("matching logged in user");
