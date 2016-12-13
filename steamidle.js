@@ -652,7 +652,7 @@ function login(name, pw, authcode, secret, games, online, callback, opts) {
 				user.chatMessage(user.redirectTo, "Message from "+((personas[sid64] || {})["player_name"] || "Unknown")+" ["+sid64+"]: "+msg);
 			});
 		}
-		if (msg.substr(0, 1) !== "!" && (typeof user.afkMsg) == "string") {
+		if (msg.substr(0, 1) !== "!" && ((typeof user.afkMsg) == "string" || user.afkMsg instanceof Array)) {
 			var f = false;
 			for (var i in users) {
 				// console.log("matching logged in user");
@@ -665,7 +665,13 @@ function login(name, pw, authcode, secret, games, online, callback, opts) {
 				f = sidMatch(wl, sid);
 			}
 			if (!f) {
-				user.chatMessage(sid, user.afkMsg);
+				if (user.afkMsg instanceof Array) {
+					for (var i = 0; i < user.afkMsg.length; i++) {
+						user.chatMessage(sid, user.afkMsg[i]);
+					}
+				} else {
+					user.chatMessage(sid, user.afkMsg);
+				}
 			}
 		}
 	});
@@ -1426,6 +1432,10 @@ function runCommand(cmd, callback, output, via) { //via: steam, cmd
 		var def = (["on", "default", "def"]).includes(msg);
 		if (def) {
 			msg = settings["afk_defaultmsg"];
+		}
+		if ((typeof msg) !== "string") {
+			op("There was an error setting the afk message. The message doesn't seem to be a string");
+			msg = "I'm afk";
 		}
 		if (!acc) {
 			for (var i in users) {
