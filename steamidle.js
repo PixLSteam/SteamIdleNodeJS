@@ -4,6 +4,8 @@ var SteamTotp = require("steam-totp");
 var SteamCommunity = require("steamcommunity");
 var community = new SteamCommunity();
 
+var SteamID = require("steamid"); //already dependency, so doesn't make a difference for the admin
+
 var prompt = require("prompt");
 var fs = require("fs");
 
@@ -109,16 +111,67 @@ function sidToSID64(sid) {
 	return sid64;
 }
 
+function sidMatch(sid1, sid2, sid1_is_sid_obj) {
+	// console.log("prear", sid1, sid2, sid1_is_sid_obj);
+	var match = [sid2, sid2.getSteamID64(), sid2.getSteam2RenderedID(), sid2.getSteam2RenderedID(true), sid2.getSteam3RenderedID()];
+	if (!sid1) {
+		return false;
+	}
+	if (!(sid1 instanceof Array)) {
+		sid1 = [sid1];
+	}
+	// console.log("postar", sid1, sid2);
+	for (var i in sid1) {
+		var match1 = [sid1[i]];
+		if (
+		// sid1[i] instanceof SteamID ||
+		sid1_is_sid_obj) {
+			match1 = match1.concat([sid1[i].getSteamID64(), sid1[i].getSteam2RenderedID(), sid1[i].getSteam2RenderedID(true), sid1[i].getSteam3RenderedID()]);
+		}
+		// if (match.includes(sid1)) {
+			// return true;
+		// }
+		for (var i1 in match1) {
+			// console.log("match", match, match1[i1]);
+			if (match.includes(match1[i1])) {
+				return true;
+			}
+		}
+	}
+	return false;
+}
+
 function formatCurrency(bal, cur) {
 	var cc = {
-		USD: "$",
-		EUR: "€",
-		CAD: "$",
-		GBP: "£",
-		AUD: "$",
-		RUB: "Руб",
+		USD: {
+			"char": "$",
+			dp: 2
+		},
+		EUR: {
+			"char": "€",
+			dp: 2
+		},
+		CAD: {
+			"char": "$",
+			dp: 2
+		},
+		GBP: {
+			"char": "£",
+			dp: 2
+		},
+		AUD: {
+			"char": "$",
+			dp: 2
+		},
+		RUB: {
+			"char": "Руб",
+			dp: 2
+		},
 		JPY: "¥",
-		CHF: "Fr.",
+		CHF: {
+			"char": "Fr.",
+			dp: 2
+		},
 		BTC: "฿"
 	};
 	var curc = SteamUser.ECurrencyCode[cur];
@@ -126,7 +179,23 @@ function formatCurrency(bal, cur) {
 		return "" + bal;
 	}
 	if (cc[curc]) {
-		return bal + " " + cc[curc];
+		var chr = cc[curc];
+		if (chr instanceof Object) {
+			chr = chr["char"];
+		}
+		var balstr = bal + "";
+		var dp = 0;
+		if (cc[curc] instanceof Object) {
+			dp = cc[curc]["dp"] || 0;
+		}
+		var intlen = (""+Math.floor(bal)).length;
+		if (Math.floor(bal) !== bal) {
+			slen = intlen + 1 + dp;
+			while (balstr.length < slen) {
+				balstr = balstr + "0";
+			}
+		}
+		return balstr + " " + chr;
 	} else {
 		return SteamUser.formatCurrency(bal, cur);
 	}
@@ -545,7 +614,8 @@ function login(name, pw, authcode, secret, games, online, callback, opts) {
 		if (!wl || !(wl instanceof Array)) {
 			wl = [];
 		}
-		if (wl.includes(sid64) || wl.includes(sid.getSteam3RenderedID()) || wl.includes(sid.getSteam2RenderedID(true)) || wl.includes(sid.getSteam2RenderedID())) {
+		// if (wl.includes(sid64) || wl.includes(sid.getSteam3RenderedID()) || wl.includes(sid.getSteam2RenderedID(true)) || wl.includes(sid.getSteam2RenderedID())) {
+		if (sidMatch(wl, sid)) {
 			authorized = true;
 		}
 		var publicCommandExecuted = false;
@@ -569,13 +639,31 @@ function login(name, pw, authcode, secret, games, online, callback, opts) {
 				// user.chatMessage(sid, "You shall not pass.");
 			}
 		}
-		if (user.redirectTo && !publicCommandExecuted && !privateCommandExecuted && msg.substr(0, 1) != "!" && user.steamID !== user.redirectTo && user.steamID.getSteamID64() !== user.redirectTo) {
+		// console.log("Checking redirection", user.redirectTo, sid);
+		// console.log("matching redirectTo");
+		if (user.redirectTo && !publicCommandExecuted && !privateCommandExecuted && msg.substr(0, 1) != "!" && user.steamID !== user.redirectTo && user.steamID.getSteamID64() !== user.redirectTo && !sidMatch(user.redirectTo, sid, (typeof user.redirectTo) !== "string")) {
 			user.getPersonas([sid], function(personas) {
 				
 				var sid64 = sidToSID64(sid);
 				// console.log(user.redirectTo, personas, personas[sid64]);
 				user.chatMessage(user.redirectTo, "Message from "+((personas[sid64] || {})["player_name"] || "Unknown")+" ["+sid64+"]: "+msg);
 			});
+		}
+		if (msg.substr(0, 1) !== "!" && user.afkMsg) {
+			var f = false;
+			for (var i in users) {
+				// console.log("matching logged in user");
+				if (sidMatch(users[i].steamID, sid, true)) {
+					f = true;
+					break;
+				}
+			}
+			if (!f) {
+				f = sidMatch(wl, sid);
+			}
+			if (!f) {
+				user.chatMessage(sid, user.afkMsg);
+			}
 		}
 	});
 }
@@ -637,7 +725,8 @@ var settings = {
 	customcmds: {
 		github: "https://github.com/PixLSteam/SteamIdleNodeJS",
 		owner: "PixL owns me and all"
-	}
+	},
+	afk_defaultmsg: "Hey there! I'm currently afk, try again later"
 };
 try {
 	fs.accessSync(settingsfile, fs.constants.R_OK);
@@ -1317,8 +1406,49 @@ function runCommand(cmd, callback, output, via) { //via: steam, cmd
 			if (callback) {
 				return callback();
 			} else {
-				return;
+				return true;
 			}
+		}
+	}
+	if (cmd[0] == "afk") {
+		var acc = cmd[1];
+		var msg = cmd[2] || settings["afk_defaultmsg"];
+		if (!acc || acc == "*" || acc == "all") {
+			acc = null;
+		}
+		var disable = (["disable", "none", "noafk", "off"]).includes(msg);
+		var def = (["on", "default", "def"]).includes(msg);
+		if (def) {
+			msg = settings["afk_defaultmsg"];
+		}
+		if (!acc) {
+			for (var i in users) {
+				users[i].afkMsg = (disable ? null : msg);
+				if (disable) {
+					op("Disabled afk message for "+i);
+				} else {
+					op("Set afk message for "+i);
+				}
+			}
+		} else {
+			try {
+				if (!users[acc]) {
+					throw Error(acc+" currently isn't logged in");
+				}
+				users[acc].afkMsg = (disable ? null : msg);
+				if (disable) {
+					op("Disabled afk message for "+acc);
+				} else {
+					op("Set afk message for "+acc);
+				}
+			} catch(err) {
+				op("An error occured: "+err);
+			}
+		}
+		if (callback) {
+			return callback();
+		} else {
+			return true;
 		}
 	}
 	if ((["help", "ahelp", "admin"]).includes(cmd[0])) {
@@ -1564,7 +1694,7 @@ function checkForPublicCommand(sid, msg, user, name) {
 			user.chatMessage(sid, "No ID provided");
 			return true;
 		}
-		var re = /^(?:http(?:s)?:\/\/(?:www\.)?steamcommunity\.com\/id\/)?([a-zA-Z0-9]*)(?:\/)?$/;
+		var re = /^(?:http(?:s)?:\/\/(?:www\.)?steamcommunity\.com\/id\/)?([a-zA-Z0-9\_\-]*)(?:\/)?$/;
 		var rer = re.exec(id);
 		if (!rer) {
 			user.chatMessage(sid, "Custom URL could not be parsed");
@@ -1602,6 +1732,13 @@ if (settings["tick_delay"] > 0) {
 
 // console.log(getDefaultReplaceObject(), getTimeReplaceObject(), combineObjects([getDefaultReplaceObject(), getTimeReplaceObject()]));
 // combineObjects([getDefaultReplaceObject(), getTimeReplaceObject()]);
+
+// var sids = "76561198135386775";
+// var sid1 = new SteamID(sids);
+// var sid2 = new SteamID(sids);
+// console.log(sidMatch(sid1, sid2, true));
+// process.exit();
+// return;
 
 if (settings["autologin"]) {
 	doAccId(0);
