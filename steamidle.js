@@ -188,6 +188,7 @@ function formatCurrency(bal, cur) {
 		if (cc[curc] instanceof Object) {
 			dp = cc[curc]["dp"] || 0;
 		}
+		bal = Math.floor(bal * Math.pow(10, dp)) / Math.pow(10, dp);
 		var intlen = (""+Math.floor(bal)).length;
 		if (Math.floor(bal) !== bal) {
 			slen = intlen + 1 + dp;
