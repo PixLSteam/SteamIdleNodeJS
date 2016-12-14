@@ -743,7 +743,9 @@ var settings = {
 		owner: "PixL owns me and all",
 		help: [
 			"\n =============== > All Bot Commands < =============== \n Here is a list with all Bot commands. \n \n ~~~~~~~~~~~~~~~ > Steam ID features < ~~~~~~~~~~~~~~~ \n 1. !id <steam url> to get every Steam 64id. \n 2. !sid to get your own Steam id. \n 3. !sid64 to get ur own Steam 64id. \n \n ~~~~~~~~~~~~~ > Clock / Date features < ~~~~~~~~~~~~~~~ \n 1. !time to get the current time. \n 2. !date to get the current date. \n 3. !alarm <time | delay> \"<description>\" to set an alarm (max. 10). \n 4. !alarm list to show all alarm's. \n 5. !alarm remove <id> to remove an alarm. \n 6. !alarm clear to remove all alarm's. \n \n ~~~~~~~~~~~~~~~ > Fun features < ~~~~~~~~~~~~~~~~~~ \n 1. !coin to flip a coin. \n 2. !dice <sides> to trow a dice. \n 3. !8ball <your question> to ask 8ball something. \n ============================================"
-		]
+		],
+		nemo: "http://www.steamcommunity.com/profiles/76561198063245159",
+		pixl: "http://www.steamcommunity.com/profiles/76561198135386775"
 	},
 	afk_defaultmsg: "Hey there! I'm currently afk, try again later",
 	afkmsg_delay: 5 //delay in seconds
@@ -1225,6 +1227,14 @@ function runCommand(cmd, callback, output, via) { //via: steam, cmd
 			name = acc;
 			acc = null;
 		}
+		if (!name) {
+			op("No name specified");
+			if (callback) {
+				return callback();
+			} else {
+				return true;
+			}
+		}
 		if (!acc) {
 			for (var i in users) {
 				users[i].setPersona(SteamUser.EPersonaState[(users[i].isOnline ? "Online" : "Offline")], name);
@@ -1628,7 +1638,7 @@ function runCommand(cmd, callback, output, via) { //via: steam, cmd
 		}
 	}
 	if ((["admin"]).includes(cmd[0])) {
-		op("\n ================== > All Admin Commands < ================= \n Here is a list with all Admin commands. | Info > - Use * to select all Acc's \n \n ~~~~~~~~~~~~~~~~~~ > Bot Control features < ~~~~~~~~~~~~~~~~~ \n 1. !idle <user or *> <ID/gp or \"your message\">: to start idling games. \n 2. !idle <user or *>: stop to stop idling. \n 3. !addfriend <user or *> <steamid64>: to add a friend with all or one Acc. \n 4. !newfriends <acc or *>: to see all new automatically accepted friends. \n 5. !newfriends clear <user or *>: to clean the list. \n 6. !redirect <user or *> <steam64id>: to redirect all msgs to an Acc. \n 7. !msg <user or *> <steam64id> <msg>: to send a msg to other users. \n 8. !wallet <user or *>: to see how much money you have. \n 9. !afk <user or *> <on or off>: to automatically send an afk msg. \n 10. !help: to see all Public commands. \n ===================================================");
+		op("\n ================== > All Admin Commands < ================= \n Here is a list with all Admin commands. | Info > - Use * to select all Acc's \n \n ~~~~~~~~~~~~~~~~~~ > Bot Control features < ~~~~~~~~~~~~~~~~~ \n 1. !idle <user or *> <ID/gp or \"your message\">: to start idling games. \n 2. !idle <user or *>: stop to stop idling. \n 3. !addfriend <user or *> <steamid64>: to add a friend with all or one Acc. \n 4. !newfriends <acc or *>: to see all new automatically accepted friends. \n 5. !newfriends clear <user or *>: to clean the list. \n 6. !redirect <user or *> <steam64id>: to redirect all msgs to an Acc. \n 7. !msg <user or *> <steam64id> <msg>: to send a msg to other users. \n 8. !wallet <user or *>: to see how much money you have. \n 9. !afk <user or *> <on or off>: to automatically send an afk msg. \n 10. !uimode [<user or *>] [<phone, web, big_picture (bp) or desktop>]: to change the ui mode. \n 11. !name [<user or *>] <name>: to change the name. \n 12. !help: to see all public commands. \n ===================================================");
 		if (callback) {
 			return callback();
 		} else {
@@ -1894,6 +1904,34 @@ function checkForPublicCommand(sid, msg, user, name) {
 			user.chatMessage(sid, "SteamID64: "+csid.getSteamID64());
 		});
 		user.chatMessage(sid, "Requested data for "+id);
+		return true;
+	}
+	if (cmd[0] === "credits") {
+		var cr = [
+			"",
+			"----- CREDITS -----",
+			"Code: PixL",
+			"Idea: Nemo, PixL",
+			"Admin & Public Help: Nemo"
+		];
+		var str = "";
+		var single = true;
+		if (single) {
+			var c = 0;
+			for (var i = 0; i < cr.length; i++) {
+				if (c > 0) {
+					str = str + "\n" + cr[i];
+				} else {
+					str = cr[i];
+				}
+				c = c + 1;
+			}
+			user.chatMessage(sid, str);
+		} else {
+			for (var i = 0; i < cr.length; i++) {
+				user.chatMessage(sid, cr[i]);
+			}
+		}
 		return true;
 	}
 	for (var i in settings["customcmds"]) {
