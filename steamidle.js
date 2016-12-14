@@ -289,6 +289,8 @@ function checkFriends(user) {
 var friendRequests = {};
 var aFriendRequests = {};
 
+var afkMsgsSent = {};
+
 function checkFriendRequest(user, fr) {
 	var autoaccept_min_lvl = (user.opts || {}).autoaccept_min_lvl;
 	user.getSteamLevels([fr], function(results) {
@@ -652,7 +654,11 @@ function login(name, pw, authcode, secret, games, online, callback, opts) {
 				user.chatMessage(user.redirectTo, "Message from "+((personas[sid64] || {})["player_name"] || "Unknown")+" ["+sid64+"]: "+msg);
 			});
 		}
-		if (msg.substr(0, 1) !== "!" && ((typeof user.afkMsg) == "string" || user.afkMsg instanceof Array)) {
+		if (!afkMsgsSent[user.name]) {
+			afkMsgsSent[user.name] = {};
+		}
+		var last = afkMsgsSent[user.name][sid64] || 0;
+		if (msg.substr(0, 1) !== "!" && ((typeof user.afkMsg) == "string" || user.afkMsg instanceof Array) && (new Date()).getTime() - (settings["afkmsg_delay"] * 1000) > last) {
 			var f = false;
 			for (var i in users) {
 				// console.log("matching logged in user");
@@ -665,6 +671,7 @@ function login(name, pw, authcode, secret, games, online, callback, opts) {
 				f = sidMatch(wl, sid);
 			}
 			if (!f) {
+				afkMsgsSent[user.name][sid64] = (new Date()).getTime();
 				if (user.afkMsg instanceof Array) {
 					for (var i = 0; i < user.afkMsg.length; i++) {
 						user.chatMessage(sid, user.afkMsg[i]);
@@ -738,31 +745,44 @@ var settings = {
 			"\n =============== > All Bot Commands < =============== \n Here is a list with all Bot commands. \n \n ~~~~~~~~~~~~~~~ > Steam ID features < ~~~~~~~~~~~~~~~ \n 1. !id <steam url> to get every Steam 64id. \n 2. !sid to get your own Steam id. \n 3. !sid64 to get ur own Steam 64id. \n \n ~~~~~~~~~~~~~ > Clock / Date features < ~~~~~~~~~~~~~~~ \n 1. !time to get the current time. \n 2. !date to get the current date. \n 3. !alarm <time | delay> \"<description>\" to set an alarm (max. 10). \n 4. !alarm list to show all alarm's. \n 5. !alarm remove <id> to remove an alarm. \n 6. !alarm clear to remove all alarm's. \n \n ~~~~~~~~~~~~~~~ > Fun features < ~~~~~~~~~~~~~~~~~~ \n 1. !coin to flip a coin. \n 2. !dice <sides> to trow a dice. \n 3. !8ball <your question> to ask 8ball something. \n ============================================"
 		]
 	},
-	afk_defaultmsg: "Hey there! I'm currently afk, try again later"
+	afk_defaultmsg: "Hey there! I'm currently afk, try again later",
+	afkmsg_delay: 5 //delay in seconds
 };
-try {
-	fs.accessSync(settingsfile, fs.constants.R_OK);
-	var setdata = fs.readFileSync(settingsfile);
+function loadSettings(display_output) {
 	try {
-		var pdata = JSON.parse(setdata);
-		if (!(pdata instanceof Object)) {
-			throw Error("Parsed JSON is not an object");
-		}
-		for (var i in pdata) {
-			if (pdata[i] instanceof Object && !(pdata[i] instanceof Array) && settings[i] instanceof Object && !(settings[i] instanceof Array)) {
-				for (var i2 in pdata[i]) {
-					settings[i][i2] = pdata[i][i2];
+		fs.accessSync(settingsfile, fs.constants.R_OK);
+		var setdata = fs.readFileSync(settingsfile);
+		try {
+			var pdata = JSON.parse(setdata);
+			if (!(pdata instanceof Object)) {
+				throw Error("Parsed JSON is not an object");
+			}
+			for (var i in pdata) {
+				if (pdata[i] instanceof Object && !(pdata[i] instanceof Array) && settings[i] instanceof Object && !(settings[i] instanceof Array)) {
+					for (var i2 in pdata[i]) {
+						settings[i][i2] = pdata[i][i2];
+					}
+				} else {
+					settings[i] = pdata[i];
 				}
+			}
+		} catch(err) {
+			if (display_output) {
+				console.log("Couldn't parse settings file: "+err);
 			} else {
-				settings[i] = pdata[i];
+				return false;
 			}
 		}
 	} catch(err) {
-		console.log("Couldn't parse settings file: "+err);
+		if (display_output) {
+			console.log("No settings file['"+settingsfile+"'] found, skipping...");
+		} else {
+			return false;
+		}
 	}
-} catch(err) {
-	console.log("No settings file['"+settingsfile+"'] found, skipping...");
+	return true;
 }
+loadSettings(true);
 try {
 	fs.accessSync(accfile, fs.constants.R_OK);
 } catch (err) {
@@ -782,23 +802,35 @@ try {
 	// console.log(data);
 	return 1;
 }
-try {
-	fs.accessSync(game_presets_file, fs.constants.R_OK);
-	var gpdata = fs.readFileSync(game_presets_file);
+function loadGamePresets(display_output) {
 	try {
-		var pdata = JSON.parse(gpdata);
-		if (!(pdata instanceof Object)) {
-			throw Error("Parsed JSON is not an object");
-		}
-		for (var i in pdata) {
-			game_presets[i] = pdata[i];
+		fs.accessSync(game_presets_file, fs.constants.R_OK);
+		var gpdata = fs.readFileSync(game_presets_file);
+		try {
+			var pdata = JSON.parse(gpdata);
+			if (!(pdata instanceof Object)) {
+				throw Error("Parsed JSON is not an object");
+			}
+			for (var i in pdata) {
+				game_presets[i] = pdata[i];
+			}
+		} catch(err) {
+			if (display_output) {
+				console.log("Couldn't parse game presets file: "+err);
+			} else {
+				return false;
+			}
 		}
 	} catch(err) {
-		console.log("Couldn't parse game presets file: "+err);
+		if (display_output) {
+			console.log("No game presets file['"+game_presets_file+"'] found, skipping...");
+		} else {
+			return false;
+		}
 	}
-} catch(err) {
-	console.log("No game presets file['"+game_presets_file+"'] found, skipping...");
+	return true;
 }
+loadGamePresets(true);
 var accids = [];
 for (var i in accs) {
 	accids.push(i);
