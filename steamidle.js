@@ -1119,6 +1119,134 @@ function runCommand(cmd, callback, output, via) { //via: steam, cmd
 			return true;
 		}
 	}
+	if (cmd[0] == "uimode") {
+		var acc = cmd[1];
+		var uim = cmd[2];
+		if (!acc || acc == "*" || acc == "all") {
+			acc = null;
+		}
+		if (!uim && acc && !users[acc]) {
+			uim = acc;
+			acc = null;
+		}
+		var modematch =
+		{
+		// [
+			[SteamUser.EClientUIMode.None]:
+			[
+				"none",
+				"off",
+				"desktop",
+				"client"
+			],
+			[SteamUser.EClientUIMode.BigPicture]:
+			[
+				"bigpicture",
+				"big_picture",
+				"bp"
+			],
+			[SteamUser.EClientUIMode.Mobile]:
+			[
+				"mobile",
+				"phone",
+				"smartphone"
+			],
+			[SteamUser.EClientUIMode.Web]:
+			[
+				"web",
+				"www",
+				"browser"
+			]
+		// ];
+		};
+		// for (var i in modematch) {
+			// modematch[parseInt(i)] = modematch[i];
+			// delete modematch[i];
+		// }
+		var ms = 
+		{
+		// [
+			[SteamUser.EClientUIMode.None]:
+			"Desktop",
+			[SteamUser.EClientUIMode.BigPicture]:
+			"Big Picture",
+			[SteamUser.EClientUIMode.Mobile]:
+			"Mobile",
+			[SteamUser.EClientUIMode.Web]:
+			"Web"
+		// ];
+		};
+		var m;
+		var f = false;
+		// console.log(modematch);
+		for (var i in modematch) {
+			// console.log("match", i, modematch[i], uim);
+			if (modematch[i].includes(uim || false)) {
+				// console.log("found", i, uim);
+				f = true;
+				m = i;
+				break;
+			}
+		}
+		if (!f) {
+			// console.log("no match in array, setting to none");
+			m = SteamUser.EClientUIMode.None;
+		}
+		// console.log("setting to", m, typeof m);
+		if (!acc) {
+			for (var i in users) {
+				users[i].setUIMode(parseInt(m));
+				op("Set ui mode for "+i+" to "+ms[m]);
+			}
+		} else {
+			try {
+				if (!users[acc]) {
+					throw Error(acc+" currently isn't logged in");
+				}
+				users[acc].setUIMode(parseInt(m));
+				op("Set ui mode for "+acc+" to "+ms[m]);
+			} catch(err) {
+				op("An error occured: "+err);
+			}
+		}
+		if (callback) {
+			return callback();
+		} else {
+			return true;
+		}
+	}
+	if (cmd[0] == "name") {
+		var acc = cmd[1];
+		var name = cmd[2];
+		if (!acc || acc == "*" || acc == "all") {
+			acc = null;
+		}
+		if (!name && acc && !users[acc]) {
+			name = acc;
+			acc = null;
+		}
+		if (!acc) {
+			for (var i in users) {
+				users[i].setPersona(SteamUser.EPersonaState[(users[i].isOnline ? "Online" : "Offline")], name);
+				op("Set name for "+i+" to '"+name+"'");
+			}
+		} else {
+			try {
+				if (!users[acc]) {
+					throw Error(acc+" currently isn't logged in");
+				}
+				users[acc].setPersona(SteamUser.EPersonaState[(users[acc].isOnline ? "Online" : "Offline")], name);
+				op("Set name for "+acc+" to '"+name+"'");
+			} catch(err) {
+				op("An error occured: "+err);
+			}
+		}
+		if (callback) {
+			return callback();
+		} else {
+			return true;
+		}
+	}
 	if (cmd[0] == "exit") {
 		if (via === "steam" && !settings["exit_via_chat"]) {
 			op("Exiting via steam chat is disabled");
@@ -1134,7 +1262,7 @@ function runCommand(cmd, callback, output, via) { //via: steam, cmd
 	}
 	if (cmd[0] == "add") {
 		if (via === "steam") {
-			op("Adding accounts via steam chat is disabled");
+			op("Adding accounts via steam chat is not possible");
 			if (callback) {
 				return callback();
 			} else {
