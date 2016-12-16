@@ -373,7 +373,9 @@ function checkNewFriends(user, op) {
 		} else {
 			msg = "has no valid request state";
 		}
-		op(name+": http://steamcommunity.com/profiles/"+frid+" "+msg);
+		var clm = settings["newfriends_chatlink_mode"] || settings["newfriends_chatlink"];
+		var lnk = ((clm == 1 || (clm == 2 && state == "+")) ? "steam://friends/message/" : "http://steamcommunity.com/profiles/")+frid;
+		op(name+": "+lnk+" "+msg);
 	}
 }
 
@@ -561,6 +563,9 @@ function login(name, pw, authcode, secret, games, online, callback, opts) {
 	var loggedOn = function() {
 		user.name = name;
 		user.opts = opts;
+		if (user.lastUIMode) {
+			user.setUIMode(user.lastUIMode);
+		}
 		updateOnlineStatus(name);
 		user.curIdling = user.curIdling || games || [221410];
 		idle(user, user.curIdling);
@@ -748,7 +753,8 @@ var settings = {
 		pixl: "http://www.steamcommunity.com/profiles/76561198135386775"
 	},
 	afk_defaultmsg: "Hey there! I'm currently afk, try again later",
-	afkmsg_delay: 5 //delay in seconds
+	afkmsg_delay: 5, //delay in seconds
+	newfriends_chatlink_mode: 2
 };
 function loadSettings(display_output) {
 	try {
@@ -1139,25 +1145,29 @@ function runCommand(cmd, callback, output, via) { //via: steam, cmd
 				"none",
 				"off",
 				"desktop",
-				"client"
+				"client",
+				"0"
 			],
 			[SteamUser.EClientUIMode.BigPicture]:
 			[
 				"bigpicture",
 				"big_picture",
-				"bp"
+				"bp",
+				"1"
 			],
 			[SteamUser.EClientUIMode.Mobile]:
 			[
 				"mobile",
 				"phone",
-				"smartphone"
+				"smartphone",
+				"2"
 			],
 			[SteamUser.EClientUIMode.Web]:
 			[
 				"web",
 				"www",
-				"browser"
+				"browser",
+				"3"
 			]
 		// ];
 		};
@@ -1194,10 +1204,12 @@ function runCommand(cmd, callback, output, via) { //via: steam, cmd
 			// console.log("no match in array, setting to none");
 			m = SteamUser.EClientUIMode.None;
 		}
+		var mn = parseInt(m);
 		// console.log("setting to", m, typeof m);
 		if (!acc) {
 			for (var i in users) {
-				users[i].setUIMode(parseInt(m));
+				users[i].setUIMode(mn);
+				users[i].lastUIMode = mn;
 				op("Set ui mode for "+i+" to "+ms[m]);
 			}
 		} else {
@@ -1205,7 +1217,8 @@ function runCommand(cmd, callback, output, via) { //via: steam, cmd
 				if (!users[acc]) {
 					throw Error(acc+" currently isn't logged in");
 				}
-				users[acc].setUIMode(parseInt(m));
+				users[acc].setUIMode(mn);
+				users[acc].lastUIMode = mn;
 				op("Set ui mode for "+acc+" to "+ms[m]);
 			} catch(err) {
 				op("An error occured: "+err);
