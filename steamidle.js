@@ -237,7 +237,31 @@ function processGame(game) {
 
 function processCustomMessage(msg) {
 	var m = msg;
-	return processStr(m);
+	m = processStr(m);
+	var robj = {};
+	var wl = []; //["maximum_alarms", "tick_delay", "afkmsg_delay", "afk_defaultmsg"]
+	var bl = [];
+	var types = ["string", "number"];
+	if (!settings["custommsg_usesettingwhitelist"]) { //use blacklist
+		for (var i in settings) {
+			var v = settings[i];
+			if (!bl.includes(i) && types.includes(typeof v)) {
+				robj[i] = "" + v;
+			}
+		}
+	} else {
+		for (var i in wl) {
+			if (settings[i] && wl.includes(i) && types.includes(typeof settings[i])) {
+				robj[i] = "" + settings[i];
+			}
+		}
+	}
+	var robj2 = {};
+	for (var i in robj) {
+		robj2["{set:"+i+"}"] = robj[i];
+	}
+	m = m.replaceMultiple(robj2);
+	return m;
 	// if ((typeof m) == "string" && m.substr(0, 1) == ":") {
 		// m = m.substr(1);
 		// var d = new Date();
@@ -747,7 +771,7 @@ var settings = {
 		github: "https://github.com/PixLSteam/SteamIdleNodeJS",
 		owner: "PixL owns me and all",
 		help: [
-			"\n =============== > All Bot Commands < =============== \n Here is a list with all Bot commands. \n \n ~~~~~~~~~~~~~~~ > Steam ID features < ~~~~~~~~~~~~~~~ \n 1. !id <steam url> to get every Steam 64id. \n 2. !sid to get your own Steam id. \n 3. !sid64 to get ur own Steam 64id. \n \n ~~~~~~~~~~~~~ > Clock / Date features < ~~~~~~~~~~~~~~~ \n 1. !time to get the current time. \n 2. !date to get the current date. \n 3. !alarm <time | delay> \"<description>\" to set an alarm (max. 10). \n 4. !alarm list to show all alarm's. \n 5. !alarm remove <id> to remove an alarm. \n 6. !alarm clear to remove all alarm's. \n \n ~~~~~~~~~~~~~~~ > Fun features < ~~~~~~~~~~~~~~~~~~ \n 1. !coin to flip a coin. \n 2. !dice <sides> to trow a dice. \n 3. !8ball <your question> to ask 8ball something. \n ============================================"
+			"\n =============== > All Bot Commands < =============== \n Here is a list with all Bot commands. \n \n ~~~~~~~~~~~~~~~ > Steam ID features < ~~~~~~~~~~~~~~~ \n 1. !id <steam url>: to get every Steam 64id. \n 2. !sid: to get your own Steam id. \n 3. !sid64: to get ur own Steam 64id. \n \n ~~~~~~~~~~~~~ > Clock / Date features < ~~~~~~~~~~~~~~~ \n 1. !time: to get the current time. \n 2. !date: to get the current date. \n 3. !alarm <time | delay> \"<description>\": to set an alarm (max. {set:maximum_alarms}). \n 4. !alarm list: to show all alarms. \n 5. !alarm remove <id>: to remove an alarm. \n 6. !alarm clear: to remove all alarms. \n \n ~~~~~~~~~~~~~~~ > Fun features < ~~~~~~~~~~~~~~~~~~ \n 1. !coin: to flip a coin. \n 2. !dice [<sides>]: to throw a dice. \n 3. !8ball [<your question>]: to ask 8ball something. \n ============================================"
 		],
 		nemo: "http://www.steamcommunity.com/profiles/76561198063245159",
 		pixl: "http://www.steamcommunity.com/profiles/76561198135386775"
