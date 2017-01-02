@@ -20,6 +20,19 @@ timing.printDetails = function printDetails() {
 	if (timing.startTime) {
 		op("Started at "+new Date(timing.startTime).myTimeString());
 	}
+	var lastTime = timing.startTime || 0;
+	for (var i = 0; i < timing.steps.length; i++) {
+		var diff = timing.steps[i].time - lastTime;
+		lastTime = lastTime + diff;
+		var desc = timing.steps[i].name;
+		op("Period '"+desc+"' took "+(diff/1000)+"s");
+	}
+	if (timing.stopTime) {
+		op("The last period took "+((timing.stopTime-lastTime)/1000)+"s");
+		if (timing.startTime) {
+			op("The whole timing session took "+((timing.stopTime-timing.startTime)/1000)+"s");
+		}
+	}
 }
 
 timing.start();
@@ -2231,6 +2244,11 @@ if (settings["tick_delay"] > 0) {
 // console.log(sidMatch(sid1, sid2, true));
 // process.exit();
 // return;
+
+timing.stop();
+if (process.argv.includes("timing")) {
+	timing.printDetails();
+}
 
 if (settings["autologin"]) {
 	doAccId(0);
