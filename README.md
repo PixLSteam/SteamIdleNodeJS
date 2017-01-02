@@ -8,7 +8,7 @@ Dependencies:
   * prompt
   * steamcommunity
 
-Changelog (not really updated) & upcoming features:
+Changelog (not really updated) & (possible) upcoming features:
 - [x] Account Config File (idleaccs.json)
 - [x] Game Presets
 - [x] In-App command line to control idling
@@ -19,3 +19,6 @@ Changelog (not really updated) & upcoming features:
 - [ ] Console parameters to specify Account Config File
 
 Look at the commit history for a "full" changelog
+
+I'm currently not working on the upcoming features listed above, because I personally think they aren't that important.
+Contact me if you want to suggest a feature or to report a bug!
