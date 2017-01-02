@@ -1851,7 +1851,7 @@ function runCommand(cmd, callback, output, via) { //via: steam, cmd
 				}
 				users[acc].personaStateFlags = state;
 				updateOnlineStatus(users[acc]);
-				op("Set persona state flags for "+i+" to "+state);
+				op("Set persona state flags for "+acc+" to "+state);
 			} catch(err) {
 				op("An error occured: "+err);
 			}
