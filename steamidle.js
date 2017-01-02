@@ -1,19 +1,67 @@
-var SteamUser = require("steam-user");
-var SteamTotp = require("steam-totp");
+Date.prototype.myTimeString = Date.prototype.toTimeString;
 
-var SteamCommunity = require("steamcommunity");
+var settings = {};
+
+var timing = {};
+timing.startTime = 0;
+timing.stopTime = 0;
+timing.steps = [];
+timing.start = function start() {
+	timing.startTime = +new Date;
+}
+timing.stop = function stop() {
+	timing.stopTime = +new Date;
+}
+timing.step = function step(name) {
+	timing.steps.push({name: name, time: +new Date});
+}
+timing.printDetails = function printDetails() {
+	op = console.log;
+	if (timing.startTime) {
+		op("Started at "+new Date(timing.startTime).myTimeString());
+	}
+}
+
+timing.start();
+
+var SteamUser = require("steam-user");timing.step("steam-user loaded");
+var SteamTotp = require("steam-totp");timing.step("steam-totp loaded");
+
+var SteamCommunity = require("steamcommunity");timing.step("steamcommunity loaded");
 var community = new SteamCommunity();
 
-var SteamID = require("steamid"); //already dependency, so doesn't make a difference for the admin
+var SteamID = require("steamid");timing.step("steamid loaded"); //already dependency, so doesn't make a difference for the admin
 
-var prompt = require("prompt");
-var fs = require("fs");
+var prompt = require("prompt");timing.step("prompt loaded");
+var fs = require("fs");timing.step("fs loaded");
 
 prompt.start();
+
+SteamUser.prototype.getPersonaStateFlags = function() {
+	if (this.personaStateFlags && parseInt(this.personaStateFlags)) {
+		return parseInt(this.personaStateFlags);
+	}
+	return 0;
+}
+
+SteamUser.prototype.setPersona = function(state, name) {
+	var user = this;
+	this._send(SteamUser.EMsg.ClientChangeStatus, {
+		"persona_state": state,
+		"persona_state_flags": user.getPersonaStateFlags(),
+		"player_name": name
+	});
+};
 
 var users = {};
 
 var alarms = {};
+
+var bot = {};
+bot.log = function log() {
+	var ar = settings.display_time ? [(new Date()).toTimeString()] : [];
+	console.log.apply(console, ar.concat(Array.prototype.slice.call(arguments)));
+}
 
 function reverseString(str) {
 	var s = "";
@@ -96,7 +144,8 @@ function toBool(b) {
 }
 
 function getDefaultOutput() {
-	return console.log;
+	// return console.log;
+	return bot.log;
 }
 
 function sidToSID64(sid) {
@@ -743,7 +792,7 @@ var game_presets = {
 };
 var accs = {
 };
-var settings = {
+settings = {
 	autologin: true, //whether to login every account on startup
 	cmd: true, //whether to display a command line after logging in every account (only valid if autologin is true)
 	tick_delay: 10, //idle checking delay in seconds
@@ -778,7 +827,8 @@ var settings = {
 	},
 	afk_defaultmsg: "Hey there! I'm currently afk, try again later",
 	afkmsg_delay: 5, //delay in seconds
-	newfriends_chatlink_mode: 2
+	newfriends_chatlink_mode: 2,
+	display_time: false
 };
 function loadSettings(display_output) {
 	try {
@@ -933,7 +983,8 @@ function openCMD() {
 		}
 		var p = parseCommand(trimSpaces(loopReplace(result.cmd, "  ", " ")));
 		try {
-			runCommand(p, next, console.log, "cmd");
+			// runCommand(p, next, console.log, "cmd");
+			runCommand(p, next, getDefaultOutput(), "cmd");
 		} catch(err) {
 			console.log("Error running command: "+err);
 			next();
@@ -1152,106 +1203,245 @@ function runCommand(cmd, callback, output, via) { //via: steam, cmd
 		}
 	}
 	if (cmd[0] == "uimode") {
-		var acc = cmd[1];
-		var uim = cmd[2];
-		if (!acc || acc == "*" || acc == "all") {
-			acc = null;
-		}
-		if (!uim && acc && !users[acc]) {
-			uim = acc;
-			acc = null;
-		}
-		var modematch =
-		{
-		// [
-			[SteamUser.EClientUIMode.None]:
-			[
-				"none",
-				"off",
-				"desktop",
-				"client",
-				"0"
-			],
-			[SteamUser.EClientUIMode.BigPicture]:
-			[
-				"bigpicture",
-				"big_picture",
-				"bp",
-				"1"
-			],
-			[SteamUser.EClientUIMode.Mobile]:
-			[
-				"mobile",
-				"phone",
-				"smartphone",
-				"2"
-			],
-			[SteamUser.EClientUIMode.Web]:
-			[
-				"web",
-				"www",
-				"browser",
-				"3"
-			]
-		// ];
-		};
-		// for (var i in modematch) {
-			// modematch[parseInt(i)] = modematch[i];
-			// delete modematch[i];
-		// }
-		var ms = 
-		{
-		// [
-			[SteamUser.EClientUIMode.None]:
-			"Desktop",
-			[SteamUser.EClientUIMode.BigPicture]:
-			"Big Picture",
-			[SteamUser.EClientUIMode.Mobile]:
-			"Mobile",
-			[SteamUser.EClientUIMode.Web]:
-			"Web"
-		// ];
-		};
-		var m;
-		var f = false;
-		// console.log(modematch);
-		for (var i in modematch) {
-			// console.log("match", i, modematch[i], uim);
-			if (modematch[i].includes(uim || false)) {
-				// console.log("found", i, uim);
-				f = true;
-				m = i;
-				break;
+		if (false) {
+			var acc = cmd[1];
+			var uim = cmd[2];
+			if (!acc || acc == "*" || acc == "all") {
+				acc = null;
 			}
-		}
-		if (!f) {
-			// console.log("no match in array, setting to none");
-			m = SteamUser.EClientUIMode.None;
-		}
-		var mn = parseInt(m);
-		// console.log("setting to", m, typeof m);
-		if (!acc) {
-			for (var i in users) {
-				users[i].setUIMode(mn);
-				users[i].lastUIMode = mn;
-				op("Set ui mode for "+i+" to "+ms[m]);
+			if (!uim && acc && !users[acc]) {
+				uim = acc;
+				acc = null;
 			}
-		} else {
-			try {
-				if (!users[acc]) {
-					throw Error(acc+" currently isn't logged in");
+			var modematch =
+			{
+			// [
+				[SteamUser.EClientUIMode.None]:
+				[
+					"none",
+					"off",
+					"desktop",
+					"client",
+					"0"
+				],
+				[SteamUser.EClientUIMode.BigPicture]:
+				[
+					"bigpicture",
+					"big_picture",
+					"bp",
+					"1"
+				],
+				[SteamUser.EClientUIMode.Mobile]:
+				[
+					"mobile",
+					"phone",
+					"smartphone",
+					"2"
+				],
+				[SteamUser.EClientUIMode.Web]:
+				[
+					"web",
+					"www",
+					"browser",
+					"3"
+				]
+			// ];
+			};
+			// for (var i in modematch) {
+				// modematch[parseInt(i)] = modematch[i];
+				// delete modematch[i];
+			// }
+			var ms = 
+			{
+			// [
+				[SteamUser.EClientUIMode.None]:
+				"Desktop",
+				[SteamUser.EClientUIMode.BigPicture]:
+				"Big Picture",
+				[SteamUser.EClientUIMode.Mobile]:
+				"Mobile",
+				[SteamUser.EClientUIMode.Web]:
+				"Web"
+			// ];
+			};
+			var m;
+			var f = false;
+			// console.log(modematch);
+			for (var i in modematch) {
+				// console.log("match", i, modematch[i], uim);
+				if (modematch[i].includes(uim || false)) {
+					// console.log("found", i, uim);
+					f = true;
+					m = i;
+					break;
 				}
-				users[acc].setUIMode(mn);
-				users[acc].lastUIMode = mn;
-				op("Set ui mode for "+acc+" to "+ms[m]);
-			} catch(err) {
-				op("An error occured: "+err);
 			}
-		}
-		if (callback) {
-			return callback();
+			if (!f) {
+				// console.log("no match in array, setting to none");
+				m = SteamUser.EClientUIMode.None;
+			}
+			var mn = parseInt(m);
+			// console.log("setting to", m, typeof m);
+			if (!acc) {
+				for (var i in users) {
+					users[i].setUIMode(mn);
+					users[i].lastUIMode = mn;
+					op("Set ui mode for "+i+" to "+ms[m]);
+				}
+			} else {
+				try {
+					if (!users[acc]) {
+						throw Error(acc+" currently isn't logged in");
+					}
+					users[acc].setUIMode(mn);
+					users[acc].lastUIMode = mn;
+					op("Set ui mode for "+acc+" to "+ms[m]);
+				} catch(err) {
+					op("An error occured: "+err);
+				}
+			}
+			if (callback) {
+				return callback();
+			} else {
+				return true;
+			}
 		} else {
-			return true;
+			var acc = cmd[1];
+			var uim = cmd[2];
+			if (!acc || acc == "*" || acc == "all") {
+				acc = null;
+			}
+			if (!uim && acc && !users[acc]) {
+				uim = acc;
+				acc = null;
+			}
+			var modematch = {
+				0: [
+					"none",
+					"off",
+					"desktop",
+					"client",
+					"0"
+				],
+				4: [
+					"gold",
+					"golden",
+					"yellow"
+				],
+				256: [
+					"web",
+					"www",
+					"browser",
+					"3",
+					"256"
+				],
+				512: [
+					"mobile",
+					"phone",
+					"smartphone",
+					"2",
+					"512"
+				],
+				1024: [
+					"bp",
+					"big_picture",
+					"bigpicture",
+					"1",
+					"1024"
+				],
+				2048: [
+					"vr",
+					"virtual_reality",
+					"virtualreality",
+					"vive",
+					"htc_vive",
+					"htcvive"
+				]
+			};
+			var input = [];
+			var mods = ["+", "-", "="];
+			var lastMod = "=";
+			var lastI = -1;
+			if (mods.includes(uim.substr(0, 1))) {
+				lastMod = uim.substr(0, 1);
+				uim = uim.substr(1);
+				// lastI = 0;
+			}
+			for (var i = 0; true; i++) {
+				if (i >= uim.length || mods.includes(uim.substr(i, 1))) {
+					var modestr = uim.substr(lastI + 1, i - lastI - 1);
+					input.push({mod: lastMod, modestr: modestr});
+					if (i >= uim.length) {
+						break;
+					}
+				}
+				if (mods.includes(uim.substr(i, 1))) {
+					lastI = i;
+					lastMod = uim.substr(i, 1);
+				}
+			}
+			// for (var i in input) {
+				// op(input[i]["mod"]+" "+input[i]["modestr"]);
+			// }
+			var firstI = 0;
+			for (var i = 0; i < input.length; i++) {
+				if (input[i]["mod"] === "=") {
+					firstI = i;
+				}
+			}
+			var appaccs = {};
+			if (acc) {
+				try {
+					if (!users[acc]) {
+						throw Error(acc+" currently isn't logged in");
+					}
+					appaccs[acc] = users[acc];
+				} catch(err) {
+					op("An error occured: "+err);
+					if (callback) {
+						return callback();
+					} else {
+						return;
+					}
+				}
+			} else {
+				appaccs = users;
+			}
+			for (var u in appaccs) {
+				var user = appaccs[u];
+				var m = user.personaStateFlags || 0;
+				for (var i = firstI; i < input.length; i++) {
+					var num = 0;
+					var match = false;
+					if (parseInt(input[i]["modestr"]) && false) {
+						num = parseInt(input[i]["modestr"]);
+						match = true;
+					} else {
+						for (var i2 in modematch) {
+							if (modematch[i2].includes(input[i]["modestr"])) {
+								match = true;
+								num = i2;
+							}
+						}
+					}
+					if (input[i]["mod"] === "=" && match) {
+						m = num;
+					} else if(input[i]["mod"] === "+" && match) {
+						m = m | num;
+					} else if(input[i]["mod"] === "-" && match) {
+						m = (m | num) - num;
+					} else {
+						m = m;
+					}
+				}
+				user.personaStateFlags = m;
+				updateOnlineStatus(user);
+			}
+			if (callback) {
+				return callback();
+			} else {
+				return;
+			}
 		}
 	}
 	if (cmd[0] == "name") {
@@ -1627,6 +1817,49 @@ function runCommand(cmd, callback, output, via) { //via: steam, cmd
 			} else {
 				return true;
 			}
+		}
+	}
+	if (cmd[0] == "state") {
+		var states = {
+			"gold": 4,
+			"golden": 4,
+			"all": 1 + 2 + 4 + 8 + 16 + 32 + 64 + 128 + 256 + 512 + 1024 + 2048,
+			"web": 256,
+			"phone": 512,
+			"big_picture": 1024,
+			"vr": 2048,
+			"memz": 3844
+		};
+		var acc = cmd[1];
+		var state = cmd[2] || 0;
+		if (!acc || acc == "*" || acc == "all") {
+			acc = null;
+		}
+		if (states[state]) {
+			state = states[state];
+		}
+		if (!acc) {
+			for (var i in users) {
+				users[i].personaStateFlags = state;
+				updateOnlineStatus(users[i]);
+				op("Set persona state flags for "+i+" to "+state);
+			}
+		} else {
+			try {
+				if (!users[acc]) {
+					throw Error(acc+" currently isn't logged in");
+				}
+				users[acc].personaStateFlags = state;
+				updateOnlineStatus(users[acc]);
+				op("Set persona state flags for "+i+" to "+state);
+			} catch(err) {
+				op("An error occured: "+err);
+			}
+		}
+		if (callback) {
+			return callback();
+		} else {
+			return;
 		}
 	}
 	if (cmd[0] == "afk") {
