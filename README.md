@@ -22,3 +22,9 @@ Look at the commit history for a "full" changelog
 
 I'm currently not working on the upcoming features listed above, because I personally think they aren't that important.
 Contact me if you want to suggest a feature or to report a bug!
+
+Installation:
+* Download the steamidle.js
+* Install nodejs and the dependencies listed above ("npm install <module>")
+* Create a file named "idleaccs.json" in the same folder as the steamidle.js
+ * Learn JSON or take a look at the examples I'll probably upload in a few minutes

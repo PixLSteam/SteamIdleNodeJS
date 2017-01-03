@@ -1,0 +1,13 @@
+{
+  "account1": {
+    "online": true,
+    "pw_index": 1
+  },
+  "account2": {
+    "online": true
+  },
+  "account3": {
+    "online": true,
+    "pw_index": 1
+  }
+}
