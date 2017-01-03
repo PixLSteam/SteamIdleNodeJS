@@ -966,9 +966,9 @@ function doAccId(index) {
 		}
 		login(name, result.password, authcode, secret, games, online, function() {doAccId(index + 1);}, {autoaccept_min_lvl: (accs[i]["autoaccept_min_lvl"] == undefined || accs[i]["autoaccept_min_lvl"] == null ? -1 : accs[i]["autoaccept_min_lvl"])});
 	}
-	if (pwi && pws[pwi]) {
+	if ((pwi && pws[pwi]) || d["password"]) {
 		console.log("Found existing password for "+name);
-		f(0, {password: pws[pwi]});
+		f(0, {password: (pwi && pws[pwi]) ? pws[pwi] : d["password"]});
 	} else {
 		console.log("Requesting password for "+name);
 		prompt.get({properties: {password: {hidden: true, replace: "*"}}}, f);
@@ -1097,9 +1097,9 @@ function runCommand(cmd, callback, output, via) { //via: steam, cmd
 				}
 				login(name, result.password, authcode, secret, games, online, callback, {autoaccept_min_lvl: (accs[acc]["autoaccept_min_lvl"] == undefined || accs[acc]["autoaccept_min_lvl"] == null ? -1 : accs[acc]["autoaccept_min_lvl"])});
 			}
-			if (pwi && pws[pwi]) {
+			if ((pwi && pws[pwi]) || d["password"]) {
 				op("Found existing password for "+name);
-				f(0, {password: pws[pwi]});
+				f(0, {password: (pwi && pws[pwi]) ? pws[pwi] : d["password"]});
 			} else {
 				op("Requesting password for "+name);
 				prompt.get({properties: {password: {hidden: true, replace: "*"}}}, f);
