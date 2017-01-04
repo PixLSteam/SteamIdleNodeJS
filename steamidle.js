@@ -376,6 +376,7 @@ var friendRequests = {};
 var aFriendRequests = {};
 
 var afkMsgsSent = {};
+var msgsSent = {};
 
 function checkFriendRequest(user, fr) {
 	var autoaccept_min_lvl = (user.opts || {}).autoaccept_min_lvl;
@@ -701,6 +702,15 @@ function login(name, pw, authcode, secret, games, online, callback, opts) {
 		
 	});
 	
+	user.on("friendMessageEcho", function(sid, msg) {
+		// console.log(user.name+" sent '"+msg+"' to "+sid.getSteamID64());
+		//suppress afk message for the next 5 minutes or so (cfg)
+		if (!msgsSent[user.name]) {
+			msgsSent[user.name] = {};
+		}
+		msgsSent[user.name][sid.getSteamID64()] = +new Date;
+	});
+	
 	user.on("friendMessage", function(sid, msg) {
 		var sid64 = sid.getSteamID64();
 		// user.chatMessage(sid, "Your steamid64: "+sid64);
@@ -742,14 +752,22 @@ function login(name, pw, authcode, secret, games, online, callback, opts) {
 				
 				var sid64 = sidToSID64(sid);
 				// console.log(user.redirectTo, personas, personas[sid64]);
-				user.chatMessage(user.redirectTo, "Message from "+((personas[sid64] || {})["player_name"] || "Unknown")+" ["+sid64+"]: "+msg);
+				try {
+					user.chatMessage(user.redirectTo, "Message from "+((personas[sid64] || {})["player_name"] || "Unknown")+" ["+sid64+"]: "+msg);
+				} catch(err) {
+					//printing the error message will spam the console when misconfiguring the redirection, so we'll just ignore it (subject to change)
+				}
 			});
 		}
 		if (!afkMsgsSent[user.name]) {
 			afkMsgsSent[user.name] = {};
 		}
+		if (!msgsSent[user.name]) {
+			msgsSent[user.name] = {};
+		}
 		var last = afkMsgsSent[user.name][sid64] || 0;
-		if (msg.substr(0, 1) !== "!" && ((typeof user.afkMsg) == "string" || user.afkMsg instanceof Array) && (new Date()).getTime() - (settings["afkmsg_delay"] * 1000) > last) {
+		var lastMsg = msgsSent[user.name][sid64] || 0;
+		if (msg.substr(0, 1) !== "!" && ((typeof user.afkMsg) == "string" || user.afkMsg instanceof Array) && (new Date()).getTime() - (settings["afkmsg_delay"] * 1000) > last && (+new Date) - (settings["afkmsg_suppress_time"] * 1000) > lastMsg) {
 			var f = false;
 			for (var i in users) {
 				// console.log("matching logged in user");
@@ -815,7 +833,7 @@ settings = {
 	online_via_chat: false,
 	maximum_alarms: 10,
 	public_chat_bot: true,
-	autoaccept: true, //whether to automatically accept friend requests, has to be turned on for every account by setting autoaccept_min_lvl to 0 or higher[CURRENTLY NOT SUPPORTED DUE TO MISSING EVENT/METHODS]
+	autoaccept: true, //whether to automatically accept friend requests, has to be turned on for every account by setting autoaccept_min_lvl to 0 or higher
 	time_special: [
 		{
 			h: [4, 16],
@@ -841,7 +859,8 @@ settings = {
 	afk_defaultmsg: "Hey there! I'm currently afk, try again later",
 	afkmsg_delay: 5, //delay in seconds
 	newfriends_chatlink_mode: 2,
-	display_time: false
+	display_time: false,
+	afkmsg_suppress_time: 300 //afkmsg suppress time (by own msg)
 };
 function loadSettings(display_output) {
 	try {
