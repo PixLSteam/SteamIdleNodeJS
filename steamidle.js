@@ -1216,7 +1216,8 @@ function runCommand(cmd, callback, output, via) { //via: steam, cmd
 		}
 	}
 	if (cmd[0] == "uimode") {
-		if (false) {
+		var m = 3;
+		if (m === 1) {
 			var acc = cmd[1];
 			var uim = cmd[2];
 			if (!acc || acc == "*" || acc == "all") {
@@ -1318,7 +1319,7 @@ function runCommand(cmd, callback, output, via) { //via: steam, cmd
 			} else {
 				return true;
 			}
-		} else {
+		} else if(m === 2) {
 			var acc = cmd[1];
 			var uim = cmd[2];
 			if (!acc || acc == "*" || acc == "all") {
@@ -1443,6 +1444,171 @@ function runCommand(cmd, callback, output, via) { //via: steam, cmd
 						m = m | num;
 					} else if(input[i]["mod"] === "-" && match) {
 						m = (m | num) - num;
+					} else {
+						m = m;
+					}
+				}
+				user.personaStateFlags = m;
+				updateOnlineStatus(user);
+			}
+			if (callback) {
+				return callback();
+			} else {
+				return;
+			}
+		} else if (m === 3) {
+			var acc = cmd[1];
+			var uim = cmd[2];
+			if (!acc || acc == "*" || acc == "all") {
+				acc = null;
+			}
+			if (!uim && acc && !users[acc]) {
+				uim = acc;
+				acc = null;
+			}
+			var modematch = {
+				0: [
+					"none",
+					"off",
+					"desktop",
+					"client",
+					"0"
+				],
+				"uimode:3": [
+					"web",
+					"www",
+					"browser",
+					"3",
+					"256"
+				],
+				"uimode:2": [
+					"mobile",
+					"phone",
+					"smartphone",
+					"2",
+					"512"
+				],
+				1024: [
+					"bp",
+					"big_picture",
+					"bigpicture",
+					"1",
+					"1024"
+				],
+				2048: [
+					"vr",
+					"virtual_reality",
+					"virtualreality",
+					"vive",
+					"htc_vive",
+					"htcvive"
+				]
+			};
+			// modematch["uimode:0"] = modematch[0];
+			var input = [];
+			var mods = ["+", "-", "="];
+			var lastMod = "=";
+			var lastI = -1;
+			if (mods.includes(uim.substr(0, 1))) {
+				lastMod = uim.substr(0, 1);
+				uim = uim.substr(1);
+				// lastI = 0;
+			}
+			for (var i = 0; true; i++) {
+				if (i >= uim.length || mods.includes(uim.substr(i, 1))) {
+					var modestr = uim.substr(lastI + 1, i - lastI - 1);
+					input.push({mod: lastMod, modestr: modestr});
+					if (i >= uim.length) {
+						break;
+					}
+				}
+				if (mods.includes(uim.substr(i, 1))) {
+					lastI = i;
+					lastMod = uim.substr(i, 1);
+				}
+			}
+			// for (var i in input) {
+				// op(input[i]["mod"]+" "+input[i]["modestr"]);
+			// }
+			var firstI = 0;
+			for (var i = 0; i < input.length; i++) {
+				if (input[i]["mod"] === "=") {
+					firstI = i;
+				}
+			}
+			var appaccs = {};
+			if (acc) {
+				try {
+					if (!users[acc]) {
+						throw Error(acc+" currently isn't logged in");
+					}
+					appaccs[acc] = users[acc];
+				} catch(err) {
+					op("An error occured: "+err);
+					if (callback) {
+						return callback();
+					} else {
+						return;
+					}
+				}
+			} else {
+				appaccs = users;
+			}
+			for (var u in appaccs) {
+				var user = appaccs[u];
+				var m = user.personaStateFlags || 0;
+				for (var i = firstI; i < input.length; i++) {
+					var num = 0;
+					var match = false;
+					var uimode = false;
+					if (parseInt(input[i]["modestr"]) && false) {
+						num = parseInt(input[i]["modestr"]);
+						match = true;
+					} else {
+						for (var i2 in modematch) {
+							if (modematch[i2].includes(input[i]["modestr"])) {
+								match = true;
+								num = i2;
+							}
+						}
+					}
+					if ((typeof num) == "string" && num.substr(0, "uimode:".length) == "uimode:") {
+						uimode = parseInt(num.substr("uimode:".length));
+					}
+					if (input[i]["mod"] === "=" && match) {
+						if (parseInt(num) == 0) {
+							m = 0;
+							user.lastUIMode = 0;
+							user.setUIMode(0);
+						} else if (parseInt(num)) {
+							m = num;
+							user.lastUIMode = 0;
+							user.setUIMode(0);
+							//set ui mode to null
+						} else if (uimode) {
+							m = 0;
+							//set ui mode if possible
+							user.lastUIMode = parseInt(uimode) || 0;
+							user.setUIMode(user.lastUIMode);
+						}
+					} else if(input[i]["mod"] === "+" && match) {
+						if (parseInt(num)) {
+							m = m | num;
+						} else if (uimode) {
+							//set ui mode
+							user.lastUIMode = parseInt(uimode) || 0;
+							user.setUIMode(user.lastUIMode);
+						}
+					} else if(input[i]["mod"] === "-" && match) {
+						if (parseInt(num)) {
+							m = (m | num) - num;
+						} else if (uimode) {
+							//remove if same
+							if (user.lastUIMode === parseInt(uimode)) {
+								user.lastUIMode = 0;
+								user.setUIMode(0);
+							}
+						}
 					} else {
 						m = m;
 					}
