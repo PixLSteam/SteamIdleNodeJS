@@ -249,11 +249,23 @@ function formatCurrency(bal, cur) {
 		if (cc[curc] instanceof Object) {
 			dp = cc[curc]["dp"] || 0;
 		}
-		bal = Math.floor(bal * Math.pow(10, dp)) / Math.pow(10, dp);
+		var smart = true;
+		if (!smart) {
+			bal = Math.floor(bal * Math.pow(10, dp)) / Math.pow(10, dp);
+		}
+		if (smart && dp <= 0) {
+			bal = Math.floor(bal);
+		}
 		var balstr = bal + "";
 		var intlen = (""+Math.floor(bal)).length;
 		if (Math.floor(bal) !== bal) {
 			slen = intlen + 1 + dp;
+			if (smart) {
+				if (slen < (bal+"").length) {
+					bal = Math.floor(bal * Math.pow(10, dp)) / Math.pow(10, dp);
+					balstr = bal + "";
+				}
+			}
 			while (balstr.length < slen) {
 				balstr = balstr + "0";
 			}
@@ -378,6 +390,30 @@ var aFriendRequests = {};
 var afkMsgsSent = {};
 var msgsSent = {};
 
+function updateFriendFile() {
+	try {
+		fs.accessSync(settings["friendSaveFile"], fs.constants.W_OK);
+		var str = JSON.stringify(aFriendRequests);
+		fs.writeFileSync(settings["friendSaveFile"], str);
+	} catch(err) {
+		//
+	}
+}
+
+function loadFriendFile() {
+	try {
+		fs.accessSync(settings["friendSaveFile"], fs.constants.R_OK);
+		var data = fs.readFileSync(settings["friendSaveFile"]);
+		var d = JSON.parse(data);
+		if (!(d instanceof Object)) {
+			throw Error("JSON not an object");
+		}
+		aFriendRequests = d;
+	} catch(err) {
+		//
+	}
+}
+
 function checkFriendRequest(user, fr) {
 	var autoaccept_min_lvl = (user.opts || {}).autoaccept_min_lvl;
 	user.getSteamLevels([fr], function(results) {
@@ -416,6 +452,8 @@ function checkFriendRequest(user, fr) {
 				aFriendRequests[user.name][fr] = "~";
 			}
 		}
+		// addToFriendFile(user.name, fr, aFriendRequests[user.name][fr]);
+		updateFriendFile();
 	});
 }
 
@@ -436,6 +474,9 @@ function checkForFriendRequests(user) {
 			if (!friendRequests[user.name][i]) {
 				friendRequests[user.name][i] = true;
 				checkFriendRequest(user, i);
+				if (settings["singleFriendAccept"]) {
+					return true;
+				}
 			}
 		}
 	}
@@ -605,11 +646,17 @@ function updateOnlineStatus(name) {
 }
 
 function tick() {
+	var frLevelChecked = false;
 	for (var i in users) {
 		idle(users[i], users[i].curIdling);
 		// users[i].setPersona(users[i].isOnline && SteamUser.Steam.EPersonaState.Online || SteamUser.Steam.EPersonaState.Offline);
 		updateOnlineStatus(i);
-		checkForFriendRequests(users[i]);
+		if (!settings["singleFriendAccept"] || !frLevelChecked) {
+			var r = checkForFriendRequests(users[i]);
+			if (r && settings["singleFriendAccept"]) {
+				frLevelChecked = true;
+			}
+		}
 	}
 	checkAlarms();
 }
@@ -708,7 +755,8 @@ function login(name, pw, authcode, secret, games, online, callback, opts) {
 		if (!msgsSent[user.name]) {
 			msgsSent[user.name] = {};
 		}
-		msgsSent[user.name][sid.getSteamID64()] = +new Date;
+		// msgsSent[user.name][sid.getSteamID64()] = +new Date;
+		msgsSent[user.name][sid.getSteamID64()] = (new Date()).getTime();
 	});
 	
 	user.on("friendMessage", function(sid, msg) {
@@ -739,7 +787,11 @@ function login(name, pw, authcode, secret, games, online, callback, opts) {
 					var f = function(msg) {
 						user.chatMessage(sid, msg);
 					};
-					privateCommandExecuted = runCommand(p, null, f, "steam");
+					try {
+						privateCommandExecuted = runCommand(p, null, f, "steam");
+					} catch(err) {
+						f("An error occured while executing the command: "+err);
+					}
 				}
 			} else {
 				// user.chatMessage(sid, "You shall not pass.");
@@ -767,7 +819,7 @@ function login(name, pw, authcode, secret, games, online, callback, opts) {
 		}
 		var last = afkMsgsSent[user.name][sid64] || 0;
 		var lastMsg = msgsSent[user.name][sid64] || 0;
-		if (msg.substr(0, 1) !== "!" && ((typeof user.afkMsg) == "string" || user.afkMsg instanceof Array) && (new Date()).getTime() - (settings["afkmsg_delay"] * 1000) > last && (+new Date) - (settings["afkmsg_suppress_time"] * 1000) > lastMsg) {
+		if (msg.substr(0, 1) !== "!" && ((typeof user.afkMsg) == "string" || user.afkMsg instanceof Array) && (new Date()).getTime() - (settings["afkmsg_delay"] * 1000) > last && (new Date()).getTime() - (settings["afkmsg_suppress_time"] * 1000) > lastMsg) {
 			var f = false;
 			for (var i in users) {
 				// console.log("matching logged in user");
@@ -819,7 +871,8 @@ var game_presets = {
 	stop: [],
 	idling: ["~Idling~"],
 	clock: [":%H:%M"],
-	steam4linux: [221410]
+	steam4linux: [221410],
+	cards: [":cards"] //used for idling cards, maybe remove array later?
 };
 var accs = {
 };
@@ -860,7 +913,9 @@ settings = {
 	afkmsg_delay: 5, //delay in seconds
 	newfriends_chatlink_mode: 2,
 	display_time: false,
-	afkmsg_suppress_time: 300 //afkmsg suppress time (by own msg)
+	afkmsg_suppress_time: 300, //afkmsg suppress time (by own msg)
+	singleFriendAccept: true, //accept max 1 friend per cycle
+	friendSaveFile: "./autofriend.json"
 };
 function loadSettings(display_output) {
 	try {
@@ -945,6 +1000,7 @@ function loadGamePresets(display_output) {
 	return true;
 }
 loadGamePresets(true);
+loadFriendFile();
 var accids = [];
 for (var i in accs) {
 	accids.push(i);
@@ -1234,6 +1290,16 @@ function runCommand(cmd, callback, output, via) { //via: steam, cmd
 			return true;
 		}
 	}
+	if (cmd[0] == "accounts") {
+		for (var i in users) {
+			op(i);
+		}
+		if (callback) {
+			return callback();
+		} else {
+			return;
+		}
+	}
 	if (cmd[0] == "uimode") {
 		var m = 3;
 		if (m === 1) {
@@ -1485,6 +1551,9 @@ function runCommand(cmd, callback, output, via) { //via: steam, cmd
 				uim = acc;
 				acc = null;
 			}
+			if (!uim) {
+				uim = "";
+			}
 			var modematch = {
 				0: [
 					"none",
@@ -1534,6 +1603,9 @@ function runCommand(cmd, callback, output, via) { //via: steam, cmd
 				// lastI = 0;
 			}
 			for (var i = 0; true; i++) {
+				if (uim.length <= 0) {
+					break;
+				}
 				if (i >= uim.length || mods.includes(uim.substr(i, 1))) {
 					var modestr = uim.substr(lastI + 1, i - lastI - 1);
 					input.push({mod: lastMod, modestr: modestr});
@@ -1612,7 +1684,8 @@ function runCommand(cmd, callback, output, via) { //via: steam, cmd
 						}
 					} else if(input[i]["mod"] === "+" && match) {
 						if (parseInt(num)) {
-							m = m | num;
+							// m = m | num;
+							m = num;
 						} else if (uimode) {
 							//set ui mode
 							user.lastUIMode = parseInt(uimode) || 0;
@@ -1972,12 +2045,14 @@ function runCommand(cmd, callback, output, via) { //via: steam, cmd
 			if (!acc) {
 				aFriendRequests = {};
 				op("Cleared the friend request history for all accounts");
+				updateFriendFile();
 			} else {
 				try {
 					if (!aFriendRequests[acc]) {
 						throw Error("No friend requests were found for "+acc);
 					}
 					delete aFriendRequests[acc];
+					updateFriendFile();
 					op("Cleared the friend request history for "+acc);
 				} catch(err) {
 					op("An error occured: "+err);
