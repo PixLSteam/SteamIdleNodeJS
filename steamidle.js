@@ -392,7 +392,7 @@ var msgsSent = {};
 
 function updateFriendFile() {
 	try {
-		fs.accessSync(settings["friendSaveFile"], fs.constants.W_OK);
+		// fs.accessSync(settings["friendSaveFile"], fs.constants.W_OK);
 		var str = JSON.stringify(aFriendRequests);
 		fs.writeFileSync(settings["friendSaveFile"], str);
 	} catch(err) {
