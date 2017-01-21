@@ -7,6 +7,8 @@ Dependencies:
   * steam-totp
   * prompt
   * steamcommunity
+  * cheerio (optional, needed for card idling)
+  * request (optional, needed for card idling)
 
 Changelog (not really updated) & (possible) upcoming features:
 - [x] Account Config File (idleaccs.json)
