@@ -45,8 +45,20 @@ var SteamCommunity = require("steamcommunity");timing.step("steamcommunity loade
 var community = new SteamCommunity();
 
 //will probably make them optional
-var Cheerio = require("cheerio");timing.step("cheerio loaded");
-var request = require("request");timing.step("request loaded");
+var Cheerio;
+var request;
+try {
+	Cheerio = require("cheerio");timing.step("cheerio loaded");
+} catch(err) {
+	Cheerio = null;
+	console.log("Couldn't load cheerio");
+}
+try {
+	request = require("request");timing.step("request loaded");
+} catch(err) {
+	request = null;
+	console.log("Coudln't load request");
+}
 
 var SteamID = require("steamid");timing.step("steamid loaded"); //already dependency, so doesn't make a difference for the admin
 
@@ -583,6 +595,9 @@ function cards(user, op) {
 
 function checkCards(user, op) {
 	op = op || function(){};
+	if (!Cheerio || !request) {
+		return;
+	}
 	if (user.cardCheckRunning) {
 		return;
 	}
@@ -638,6 +653,9 @@ function checkCards(user, op) {
 }
 
 function cardCheck(user, callback) {
+	if (!Cheerio || !request) {
+		return false;
+	}
 	var g_Jar = request.jar();
 	var g_Page = user.cardPage;
 	if (!user.appOwnershipCached) {
