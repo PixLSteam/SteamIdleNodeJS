@@ -38,10 +38,15 @@ timing.printDetails = function printDetails() {
 timing.start();
 
 var SteamUser = require("steam-user");timing.step("steam-user loaded");
+var Steam = SteamUser.Steam;
 var SteamTotp = require("steam-totp");timing.step("steam-totp loaded");
 
 var SteamCommunity = require("steamcommunity");timing.step("steamcommunity loaded");
 var community = new SteamCommunity();
+
+//will probably make them optional
+var Cheerio = require("cheerio");timing.step("cheerio loaded");
+var request = require("request");timing.step("request loaded");
 
 var SteamID = require("steamid");timing.step("steamid loaded"); //already dependency, so doesn't make a difference for the admin
 
@@ -49,6 +54,34 @@ var prompt = require("prompt");timing.step("prompt loaded");
 var fs = require("fs");timing.step("fs loaded");
 
 prompt.start();
+
+SteamUser.prototype.idlingCards = function idlingCards() {
+	return this.curIdling && this.curIdling.indexOf(":cards") > -1;
+}
+
+SteamUser.prototype.getOpt = function getOpt(opt) {
+	if (this.opts) {
+		if (([null, undefined]).indexOf(this.opts[opt]) <= -1) {
+			return this.opts[opt];
+		}
+	}
+	if (([null, undefined]).indexOf(settings[opt]) <= -1) {
+		return settings[opt];
+	}
+	return null;
+};
+SteamUser.prototype.getOptComb = function getOptComb(opt) {
+	var cur = [];
+	if (this.opts) {
+		if (this.opts[opt] instanceof Array) {
+			cur = cur.concat(this.opts[opt]);
+		}
+	}
+	if (settings[opt] instanceof Array) {
+		cur = cur.concat(settings[opt]);
+	}
+	return cur;
+}
 
 SteamUser.prototype.getPersonaStateFlags = function() {
 	if (this.personaStateFlags && parseInt(this.personaStateFlags)) {
@@ -65,6 +98,8 @@ SteamUser.prototype.setPersona = function(state, name) {
 		"player_name": name
 	});
 };
+
+var tickHandle;
 
 var users = {};
 
@@ -292,8 +327,27 @@ function processStr(str) {
 	return g;
 }
 
-function processGame(game) {
+function processGame(game, user) {
 	var g = game;
+	var re = /^\d+$/;
+	var g2 = g;
+	if (typeof g2 === "string" && g2.match(re)) {
+		g2 = parseInt(g2);
+	}
+	// console.log(user.name, typeof g2, g2, JSON.stringify(user.getOptComb("games_blacklist")), user.getOptComb("games_blacklist").indexOf(g2));
+	if (user && user.getOptComb("games_blacklist").indexOf(g2) >= 0) {
+		return null;
+	}
+	if (typeof g2 === "string" && g2 === ":cards" && user) {
+		var cg = user.currentCardApps || [];
+		var r = [];
+		for (var i = 0; i < cg.length; i++) {
+			if (user.getOptComb("games_blacklist").indexOf(g2) < 0) {
+				r.push(cg[i]);
+			}
+		}
+		return r;
+	}
 	return processStr(g);
 	// if ((typeof g) == "string" && g.substr(0, 1) == ":") { //clock
 		// g = g.substr(1);
@@ -350,19 +404,28 @@ function processCustomMessage(msg) {
 	// return m;
 }
 
-function processGamesArray(games) {
+function processGamesArray(games, user) {
 	if ((typeof games) == "string" || (typeof games) == "number") {
-		return processGame(games);
+		return processGame(games, user);
 	}
 	var r = [];
 	for (var i = 0; i < games.length; i++) {
-		r.push(processGame(games[i]));
+		var g = processGame(games[i], user);
+		if (g instanceof Array) {
+			r = r.concat(g);
+		} else {
+			r.push(g);
+		}
+	}
+	r = r.filter(function(x){return ([null, undefined]).indexOf(x) < 0;});
+	if (user && (r.length > user.getOpt("maxGames"))) {
+		r.splice(user.getOpt("maxGames"));
 	}
 	return r;
 }
 
 function idle(user, games) {
-	user.gamesPlayed(processGamesArray(games));
+	user.gamesPlayed(processGamesArray(games, user));
 }
 
 function checkFriends(user) {
@@ -507,6 +570,291 @@ function checkNewFriends(user, op) {
 	}
 }
 
+function cards(user, op) {
+	if (!user.cardCheckRunning) {
+		cardCheck(user, function(user, cardApps) {
+			for (var i = 0; i < cardApps.length; i++) {
+				var str = JSON.stringify(cardApps[i]);
+				op(user.name+": "+str);
+			}
+		});
+	}
+}
+
+function checkCards(user, op) {
+	op = op || function(){};
+	if (user.cardCheckRunning) {
+		return;
+	}
+	if (!user.idlingCards()) {
+		return;
+	}
+	var lastCheck = user.lastCheck || 0;
+	var lastDiff = (+new Date) - lastCheck;
+	var delay = user.getOpt("cardCheckDelay") || settings["cardCheckDelay"] || (5 * 60);
+	if (lastDiff < delay * 1000) {
+		return;
+	}
+	var f = function(u, cardApps) {
+		if (cardApps.length <= 0) {
+			u.cardPage++;
+			return;
+		}
+		var cardIdleReachCardTimeFirst = u.getOpt("cardIdleReachCardTimeFirst");
+		var cardIdleMultiHours = u.getOpt("cardIdleMultiHours");
+		var ca = cardApps.concat();
+		//sort here
+		if (true) {
+			while (true) {
+				var change = false;
+				for (var i = 0; i < ca.length - 1; i++) {
+					var pre = ca[i];
+					var nxt = ca[i + 1];
+					if (cardIdleReachCardTimeFirst ? (pre["playtime"] > nxt["playtime"]) : (pre["playime"] < nxt["playtime"])) {
+						ca[i] = nxt;
+						ca[i + 1] = pre;
+						change = true;
+					}
+				}
+				if (!change) {
+					break;
+				}
+			}
+		}
+		if (ca.length > u.getOpt("maxGames")) {
+			ca.splice(u.getOpt("maxGames"), Infinity);
+		}
+		if (!cardIdleReachCardTimeFirst || !cardIdleMultiHours) {
+			ca.splice(1, Infinity);
+		}
+		var cas = [];
+		for (var i = 0; i < ca.length; i++) {
+			cas.push(ca[i].appid);
+		}
+		user.currentCardApps = cas;
+		user.allCardApps = cardApps;
+	};
+	cardCheck(user, f);
+}
+
+function cardCheck(user, callback) {
+	var g_Jar = request.jar();
+	var g_Page = user.cardPage;
+	if (!user.appOwnershipCached) {
+		return false;
+	}
+	if (!user.cookies) {
+		return false;
+	}
+	if (!user.licenses) {
+		return false;
+	}
+	if (!user.picsCache || !user.picsCache.packages) {
+		return false;
+	}
+	user.cookies.forEach(function(cookie) {
+		g_Jar.setCookie(cookie, "https://steamcommunity.com");
+	});
+	var rq = request.defaults({"jar": g_Jar});
+	user.cardCheckRunning = true;
+	user.lastCheck = +new Date;
+	rq("https://steamcommunity.com/my/badges/?p="+g_Page, function(err, response, body) {
+		user.cardCheckRunning = false;
+		if (err || response.statusCode != 200) {
+			// op("Couldn't request badge page: "+(err||"HTTP error "+response.statusCode));
+			return false;
+		}
+		var ownedPackages = user.licenses.map(function(license) {
+			var pkg = user.picsCache.packages[license.package_id].packageinfo;
+			pkg.time_created = license.time_created;
+			pkg.payment_method = license.payment_method;
+			return pkg;
+		}).filter(function(pkg) {
+			return !(pkg.extended && pkg.extended.freeweekend);
+		});
+		var $_ = Cheerio.load(body);
+		var infolines = $_(".progress_info_bold");
+		var cardApps = [];
+		for (var i = 0; i < infolines.length; i++) {
+			// var match = $_(infolines[i]).text().(/(\d+) card drops? remaining/);
+			var match = $_(infolines[i]).text().match(/(\d+)/);
+			var br = $_(infolines[i]).closest('.badge_row');
+			var ael = br.find('.badge_title_playgame a');
+			var href = ael.attr('href');
+			// for (var i in ael) {
+				// op(i+" "+typeof ael[i]);
+			// }
+			// op(""+br.html());
+			// op(""+ael.html());
+			// op(""+ael.attr("href"));
+			// return;
+			// continue;
+			// op(typeof ael + ael);
+			// op(typeof href + href);
+			if (!match || !href) {
+				continue;
+			}
+			// var overlay = br.find(".badge_row_overlay");
+			// if (!overlay) {
+				// continue;
+			// }
+			
+			var idm = href ? href.match(/steam:\/\/run\/(\d+)/) : null;
+			var appid = (idm ? idm[1] : href);
+			
+			//check if app is owned, idm
+			if(!user.picsCache.apps.hasOwnProperty(appid)) {
+				continue;
+			}
+			
+			var newlyPurchased = false;
+			var lastPkg;
+			// Find the package(s) in which we own this app
+			ownedPackages.filter(function(pkg) {
+				return pkg.appids && pkg.appids.indexOf(appid) != -1;
+			}).forEach(function(pkg) {
+				var timeCreatedAgo = Math.floor(Date.now() / 1000) - pkg.time_created;
+				if(timeCreatedAgo < (60 * 60 * 24 * 14) && [Steam.EPaymentMethod.ActivationCode, Steam.EPaymentMethod.GuestPass, Steam.EPaymentMethod.Complimentary].indexOf(pkg.payment_method) == -1) {
+					newlyPurchased = true;
+				}
+				lastPkg = pkg;
+			});
+			
+			var playtime = br.find(".badge_title_stats").html().match(/(\d+\.\d+)/);
+			if (!playtime) {
+				playtime = 0.0;
+			} else {
+				playtime = parseFloat(playtime[1], 10);
+				if (isNaN(playtime)) {
+					playtime = 0.0;
+				}
+			}
+			
+			var dropsLeft = 0;
+			
+			if (match && match[1] && parseInt(match[1])) {
+				dropsLeft = parseInt(match[1]);
+				// op(match[1]+" cards in "+appid+" with a playtime of "+(playtime)+"h");
+			}
+			var gameObj = {};
+			gameObj.appid = parseInt(appid);
+			gameObj.dropsLeft = parseInt(dropsLeft);
+			gameObj.playtime = parseFloat(playtime);
+			gameObj.time_created = (lastPkg ? lastPkg.time_created : 0);
+			gameObj.newlyPurchased = newlyPurchased;
+			if (dropsLeft > 0) {
+				cardApps.push(gameObj);
+			}
+		}
+		if (callback) {
+			callback(user, cardApps);
+		}
+	});
+}
+
+function checkCardsCmd(user, op) {
+	if (true) { //for testing
+		cards(user, op);
+		return;
+	}
+	op = op || function(){};
+	var g_Jar = request.jar();
+	var g_Page = 1;
+	if (!user.cookies) {
+		return;
+	}
+	user.cookies.forEach(function(cookie) {
+		g_Jar.setCookie(cookie, "https://steamcommunity.com");
+	});
+	var rq = request.defaults({"jar": g_Jar});
+	rq("https://steamcommunity.com/my/badges/?p="+g_Page, function(err, response, body) {
+		if (err || response.statusCode != 200) {
+			op("Couldn't request badge page: "+(err||"HTTP error "+response.statusCode));
+			return;
+		}
+		try {
+			var file = "/var/www/html/badges_"+user.name+".html";
+			// fs.writeFileSync(file, body);
+			// op("Successfully wrote the body to "+file);
+		} catch(err) {
+			// op("An error occured while writing to the file");
+			return;
+		}
+		var ownedPackages = user.licenses.map(function(license) {
+			var pkg = user.picsCache.packages[license.package_id].packageinfo;
+			pkg.time_created = license.time_created;
+			pkg.payment_method = license.payment_method;
+			return pkg;
+		}).filter(function(pkg) {
+			return !(pkg.extended && pkg.extended.freeweekend);
+		});
+		var $_ = Cheerio.load(body);
+		var infolines = $_(".progress_info_bold");
+		for (var i = 0; i < infolines.length; i++) {
+			// var match = $_(infolines[i]).text().(/(\d+) card drops? remaining/);
+			var match = $_(infolines[i]).text().match(/(\d+)/);
+			var br = $_(infolines[i]).closest('.badge_row');
+			var ael = br.find('.badge_title_playgame a');
+			var href = ael.attr('href');
+			// for (var i in ael) {
+				// op(i+" "+typeof ael[i]);
+			// }
+			// op(""+br.html());
+			// op(""+ael.html());
+			// op(""+ael.attr("href"));
+			// return;
+			// continue;
+			// op(typeof ael + ael);
+			// op(typeof href + href);
+			if (!match || !href) {
+				continue;
+			}
+			// var overlay = br.find(".badge_row_overlay");
+			// if (!overlay) {
+				// continue;
+			// }
+			
+			var idm = href ? href.match(/steam:\/\/run\/(\d+)/) : null;
+			var appid = (idm ? idm[1] : href);
+			
+			//check if app is owned, idm
+			if(!user.picsCache.apps.hasOwnProperty(appid)) {
+				continue;
+			}
+			
+			var newlyPurchased = false;
+			var lastPkg;
+			// Find the package(s) in which we own this app
+			ownedPackages.filter(function(pkg) {
+				return pkg.appids && pkg.appids.indexOf(appid) != -1;
+			}).forEach(function(pkg) {
+				var timeCreatedAgo = Math.floor(Date.now() / 1000) - pkg.time_created;
+				if(timeCreatedAgo < (60 * 60 * 24 * 14) && [Steam.EPaymentMethod.ActivationCode, Steam.EPaymentMethod.GuestPass, Steam.EPaymentMethod.Complimentary].indexOf(pkg.payment_method) == -1) {
+					newlyPurchased = true;
+				}
+				lastPkg = pkg;
+			});
+			
+			var playtime = br.find(".badge_title_stats").html().match(/(\d+\.\d+)/);
+			if (!playtime) {
+				playtime = 0.0;
+			} else {
+				playtime = parseFloat(playtime[1], 10);
+				if (isNaN(playtime)) {
+					playtime = 0.0;
+				}
+			}
+			
+			var dropsLeft = 0;
+			
+			if (match && match[1] && parseInt(match[1])) {
+				dropsLeft = parseInt(match[1]);
+				op(match[1]+" cards in "+appid+" with a playtime of "+(playtime)+"h");
+			}
+		}
+	});
+}
+
 function parsePeriod(period) {
 	var re = /[1-9][0-9]*[hHmMsS]/g;
 	var mults = [
@@ -648,6 +996,9 @@ function updateOnlineStatus(name) {
 function tick() {
 	var frLevelChecked = false;
 	for (var i in users) {
+		if (users[i].idlingCards()) {
+			checkCards(users[i]); //only check if currently idling cards	
+		}
 		idle(users[i], users[i].curIdling);
 		// users[i].setPersona(users[i].isOnline && SteamUser.Steam.EPersonaState.Online || SteamUser.Steam.EPersonaState.Offline);
 		updateOnlineStatus(i);
@@ -673,9 +1024,19 @@ function login(name, pw, authcode, secret, games, online, callback, opts) {
 		ac = "";
 	}
 	ac = SteamTotp.getAuthCode("");
+	
+	user.cardPage = 1;
 	 
 	user.on("error", function(err) {
-		console.log("An error occured..."); 
+		if (err == "Error: InvalidPassword") {
+			console.log("Invalid password entered for "+name);
+			user.logOff();
+			if (callback) {
+				callback();
+			}
+		} else {
+			console.log("An error occured..."); 
+		}
 	});
 	 
 	user.on("disconnected", function() {
@@ -696,7 +1057,6 @@ function login(name, pw, authcode, secret, games, online, callback, opts) {
 	
 	var loggedOn = function() {
 		user.name = name;
-		user.opts = opts;
 		if (user.lastUIMode) {
 			user.setUIMode(user.lastUIMode);
 		}
@@ -705,16 +1065,20 @@ function login(name, pw, authcode, secret, games, online, callback, opts) {
 		idle(user, user.curIdling);
 	}
 	 
-	user.on("webSession", function() {
+	user.on("webSession", function(sessionID, cookies) {
+		user.sessionID = sessionID;
+		user.cookies = cookies;
 		if (firstLoginTrigger) {
 			console.log("Logged in!");
 			users[name] = user;
+			user.opts = opts;
 			user.isOnline = toBool(online);
 			loggedOn();
 			firstLoginTrigger = false;
 			if (callback) {
 				callback();
 			}
+			user.setOption("enablePicsCache", true);
 		}
 	});
 	
@@ -728,6 +1092,11 @@ function login(name, pw, authcode, secret, games, online, callback, opts) {
 	user.prepareKill = function() {
 		killPrepared = true;
 	}
+	
+	user.once("appOwnershipCached", function() {
+		// console.log("Cached app ownership for "+user.name);
+		user.appOwnershipCached = true;
+	});
 	
 	user.on("loginKey", function(key) {
 		
@@ -915,7 +1284,11 @@ settings = {
 	display_time: false,
 	afkmsg_suppress_time: 300, //afkmsg suppress time (by own msg)
 	singleFriendAccept: true, //accept max 1 friend per cycle
-	friendSaveFile: "./autofriend.json"
+	friendSaveFile: "./autofriend.json",
+	cardIdleMultiHours: false, //idle multiple games simultaneously until they reach 2H, currently disabled
+	cardIdleReachCardTimeFirst: false, //whether to idle all games up to 2H before trying to get cards, currently disabled
+	maxGames: 30, //max games to idle at once per account
+	cardCheckDelay: 5 * 60
 };
 function loadSettings(display_output) {
 	try {
@@ -1014,6 +1387,12 @@ function gamesVarToArray(v) {
 	}
 	return v;
 }
+function accGetOpts(i) {
+	return {
+		autoaccept_min_lvl: (accs[i]["autoaccept_min_lvl"] == undefined || accs[i]["autoaccept_min_lvl"] == null ? -1 : accs[i]["autoaccept_min_lvl"]),
+		games_blacklist: (accs[i]["games_blacklist"] ? ((typeof (accs[i]["games_blacklist"])) === "string" ? (accs[i]["games_blacklist"].match(/^\d+(,\d+)*$/) ? accs[i]["games_blacklist"].split(",").map(function(x){return parseInt(x)}) : (parseInt(accs[i]["games_blacklist"]) ? [parseInt(accs[i]["games_blacklist"])] : [])) : (accs[i]["games_blacklist"] instanceof Array ? accs[i]["games_blacklist"].filter(function(x){return !isNaN(parseInt(x))}).map(function(x){return parseInt(x)}) : 	[])) : [])
+	};
+}
 function doAccId(index) {
 	if (index >= accids.length) {
 		if (settings["cmd"]) {
@@ -1039,7 +1418,7 @@ function doAccId(index) {
 		if (pwi) {
 			pws[pwi] = result.password;
 		}
-		login(name, result.password, authcode, secret, games, online, function() {doAccId(index + 1);}, {autoaccept_min_lvl: (accs[i]["autoaccept_min_lvl"] == undefined || accs[i]["autoaccept_min_lvl"] == null ? -1 : accs[i]["autoaccept_min_lvl"])});
+		login(name, result.password, authcode, secret, games, online, function() {doAccId(index + 1);}, accGetOpts(i));
 	}
 	if ((pwi && pws[pwi]) || d["password"]) {
 		console.log("Found existing password for "+name);
@@ -1170,7 +1549,7 @@ function runCommand(cmd, callback, output, via) { //via: steam, cmd
 				if (pwi) {
 					pws[pwi] = result.password;
 				}
-				login(name, result.password, authcode, secret, games, online, callback, {autoaccept_min_lvl: (accs[acc]["autoaccept_min_lvl"] == undefined || accs[acc]["autoaccept_min_lvl"] == null ? -1 : accs[acc]["autoaccept_min_lvl"])});
+				login(name, result.password, authcode, secret, games, online, callback, accGetOpts(acc));
 			}
 			if ((pwi && pws[pwi]) || d["password"]) {
 				op("Found existing password for "+name);
@@ -1808,7 +2187,12 @@ function runCommand(cmd, callback, output, via) { //via: steam, cmd
 				for (var i in users) {
 					users[i].curIdling = games;
 					idle(users[i], users[i].curIdling);
-					op(i+" is now idling "+games.length+" game"+(games.length == 1 ? "" : "s"));
+					var g2 = processGamesArray(games, users[i]);
+					var len = g2.length;
+					if (games.length > 0 && games[0] === ":cards") {
+						len = "cards";
+					}
+					op(i+" is now idling "+(len === "cards" ? "cards" : len+" game"+(len == 1 ? "" : "s")));
 				}
 			} else {
 				if (!users[user]) {
@@ -1816,7 +2200,12 @@ function runCommand(cmd, callback, output, via) { //via: steam, cmd
 				}
 				users[user].curIdling = games;
 				idle(users[user], users[user].curIdling);
-				op(user+" is now idling "+games.length+" game"+(games.length == 1 ? "" : "s"));
+				var g2 = processGamesArray(games, users[user]);
+				var len = g2.length;
+				if (games.length > 0 && games[0] === ":cards") {
+					len = "cards";
+				}
+				op(user+" is now idling "+(len === "cards" ? "cards" : len+" game"+(len == 1 ? "" : "s")));
 			}
 		} catch(err) {
 			op("An error occured: "+err);
@@ -2010,6 +2399,9 @@ function runCommand(cmd, callback, output, via) { //via: steam, cmd
 			for (var i in users) {
 				var user = users[i];
 				user.redirectTo = red2;
+				if (i === to) {
+					user.redirectTo = null;
+				}
 				if (red2) {
 					op("Activated redirection for "+i);
 				} else {
@@ -2023,6 +2415,9 @@ function runCommand(cmd, callback, output, via) { //via: steam, cmd
 				}
 				var user = users[acc];
 				user.redirectTo = red2;
+				if (acc === to) {
+					user.redirectTo = null;
+				}
 				if (red2) {
 					op("Activated redirection for "+acc);
 				} else {
@@ -2128,6 +2523,71 @@ function runCommand(cmd, callback, output, via) { //via: steam, cmd
 			} catch(err) {
 				op("An error occured: "+err);
 			}
+		}
+		if (callback) {
+			return callback();
+		} else {
+			return;
+		}
+	}
+	if (cmd[0] == "optcomb") {
+		var acc = cmd[1];
+		if (!acc || acc == "*" || acc == "all") {
+			acc = null;
+		}
+		var appaccs = {};
+		try {
+			if (!acc) {
+				appaccs = users;
+			} else {
+				if (!users[acc]) {
+					throw Error(acc+" currently isn't logged in");
+				}
+				// appaccs.push(users[acc]);
+				appaccs[acc] = users[acc];
+			}
+			for (var i in appaccs) {
+				var oc = appaccs[i].getOptComb("games_blacklist");
+				var ocs = JSON.stringify(oc);
+				op(i+": "+ocs);
+			}
+		} catch(err) {
+			op("An error occured: "+err);
+		}
+	}
+	if (cmd[0] == "curidling") {
+		var acc = cmd[1];
+		try {
+			if (!acc) {
+				throw Error("No account supplied. This command may not be applied to all accounts at once");
+			}
+			if (!users[acc]) {
+				throw Error(acc+" currently isn't logged in");
+			}
+			var ci = users[acc].curIdling;
+			var cis = JSON.stringify(ci);
+			op(acc+": "+cis);
+		} catch(err) {
+			op("An error occured: "+err);
+		}
+		if (callback) {
+			return callback();
+		} else {
+			return;
+		}
+	}
+	if (cmd[0] == "cards") {
+		var acc = cmd[1];
+		try {
+			if (!acc) {
+				throw Error("No account supplied. This command may not be applied to all accounts at once");
+			}
+			if (!users[acc]) {
+				throw Error(acc+" currently isn't logged in");
+			}
+			checkCardsCmd(users[acc], op);
+		} catch(err) {
+			op("An error occured: "+err);
 		}
 		if (callback) {
 			return callback();
@@ -2492,7 +2952,7 @@ function checkForPublicCommand(sid, msg, user, name) {
 }
 
 if (settings["tick_delay"] > 0) {
-	setInterval(tick, (settings["tick_delay"] || 10) * 1000);
+	tickHandle = setInterval(tick, (settings["tick_delay"] || 10) * 1000);
 }
 
 // console.log(getDefaultReplaceObject(), getTimeReplaceObject(), combineObjects([getDefaultReplaceObject(), getTimeReplaceObject()]));
