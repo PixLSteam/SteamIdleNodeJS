@@ -111,6 +111,25 @@ SteamUser.prototype.setPersona = function(state, name) {
 	});
 };
 
+function empty(obj) {
+	for (var i in obj) {
+		if (obj.hasOwnProperty(i)) {
+			return true;
+		}
+	}
+	return false;
+}
+
+function clone(obj) {
+	var r = {};
+	for (var i in obj) {
+		if (obj.hasOwnProperty(i)) {
+			r[i] = obj[i];
+		}
+	}
+	return r;
+}
+
 var tickHandle;
 
 var users = {};
@@ -118,9 +137,69 @@ var users = {};
 var alarms = {};
 
 var bot = {};
+bot.users = users;
+bot.alarms = alarms;
 bot.log = function log() {
 	var ar = settings.display_time ? [(new Date()).toTimeString()] : [];
 	console.log.apply(console, ar.concat(Array.prototype.slice.call(arguments)));
+}
+bot.events = {};
+bot.events.listeners = {};
+bot.events.addListener = function addListener(evt, id, func) {
+	bot.events.listeners[evt] = bot.events.listeners[evt] || {};
+	var obj = {};
+	obj.func = func;
+	obj.evt = evt;
+	obj.id = id;
+	bot.events.listeners[evt][id] = obj;
+}
+bot.events.removeAllListeners = function removeAllListeners(evt) {
+	if (evt) {
+		// bot.events.listeners[evt] = {};
+		delete bot.events.listeners[evt];
+	} else {
+		bot.events.listeners = {};
+	}
+}
+bot.events.removeListener = function removeListener(evt, id) {
+	bot.events.listeners[evt] = bot.events.listeners[evt] || {};
+	delete bot.events.listeners[evt][id];
+}
+bot.events.getEvents = function getEvents() {
+	var ar = [];
+	for (var i in bot.events.listeners) {
+		if (!empty(bot.events.listeners[i])) {
+			ar.push(i);
+		}
+	}
+	return ar;
+}
+bot.events.getListeners = function getListeners(evt) {
+	return clone(bot.events.listeners[evt] || {});
+}
+bot.events.emit = function emit(evt, args) {
+	var l = bot.events.getListeners(evt);
+	for (var i in l) {
+		var obj = l[i];
+		var f = obj.func;
+		if (typeof f === "function") {
+			f.apply(null, args || []);
+		}
+	}
+}
+bot.commands = {};
+bot.commands.list = {};
+bot.commands.addCommand = function addCommand(cmd, func) {
+	var obj = {};
+	obj.func = func;
+	obj.cmd = cmd;
+	bot.commands.list[cmd] = obj;
+}
+bot.commands.removeCommand = function removeCommand(cmd) {
+	delete bot.commands.list[cmd];
+}
+bot.commands.getCommands = function getCommands() {
+	return clone(bot.commands.list);
 }
 
 function reverseString(str) {
@@ -680,8 +759,10 @@ function cardCheck(user, callback) {
 		user.cardCheckRunning = false;
 		if (err || response.statusCode != 200) {
 			// op("Couldn't request badge page: "+(err||"HTTP error "+response.statusCode));
+			user.lastCheck = (+new Date) - user.getOpt("cardCheckDelay") * 1000 + user.getOpt("cardCheckFailDelay") * 1000;
 			return false;
 		}
+		user.lastCheck = +new Date;
 		var ownedPackages = user.licenses.map(function(license) {
 			var pkg = user.picsCache.packages[license.package_id].packageinfo;
 			pkg.time_created = license.time_created;
@@ -1306,7 +1387,8 @@ settings = {
 	cardIdleMultiHours: false, //idle multiple games simultaneously until they reach 2H, currently disabled
 	cardIdleReachCardTimeFirst: false, //whether to idle all games up to 2H before trying to get cards, currently disabled
 	maxGames: 30, //max games to idle at once per account
-	cardCheckDelay: 5 * 60
+	cardCheckDelay: 5 * 60,
+	cardCheckFailDelay: 10
 };
 function loadSettings(display_output) {
 	try {
@@ -2503,6 +2585,53 @@ function runCommand(cmd, callback, output, via) { //via: steam, cmd
 			} else {
 				return true;
 			}
+		}
+	}
+	if (cmd[0] == "cardstatus") {
+		var acc = cmd[1];
+		if (!acc || acc == "*" || acc == "all") {
+			acc = null;
+		}
+		var appaccs = {};
+		try {
+			if (!acc) {
+				appaccs = users;
+			} else {
+				if (!users[acc]) {
+					throw Error(acc+" currently isn't logged in");
+				}
+				appaccs[acc] = users[acc];
+			}
+			for (var i in appaccs) {
+				var cardGames = appaccs[i].allCardApps;
+				// op(i+": "+JSON.stringify(cardGames));
+				var hasCardGames = true;
+				if (!cardGames || cardGames.length <= 0) {
+					hasCardGames = false;
+				}
+				var totalCards = 0;
+				var totalGames = 0;
+				for (var i2 in cardGames) {
+					var game = cardGames[i2];
+					var drops = game["dropsLeft"];
+					if (drops && drops > 0) {
+						totalCards += drops;
+						totalGames++;
+					}
+				}
+				if (hasCardGames) {
+					op(i+" has "+totalCards+" card drops remaining in "+totalGames+" game"+(totalGames == 1 ? "" : "s"));
+				} else {
+					op(i+" has no card drops remaining or didn't idle cards before");
+				}
+			}
+		} catch(err) {
+			op("An error occured: "+err);
+		}
+		if (callback) {
+			return callback();
+		} else {
+			return;
 		}
 	}
 	if (cmd[0] == "state") {
