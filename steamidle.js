@@ -1134,7 +1134,8 @@ function login(name, pw, authcode, secret, games, online, callback, opts) {
 				callback();
 			}
 		} else {
-			console.log("An error occured..."); 
+			console.log("An error occured...");
+			console.log(err);
 		}
 	});
 	 
