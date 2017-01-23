@@ -67,6 +67,10 @@ var fs = require("fs");timing.step("fs loaded");
 
 prompt.start();
 
+SteamUser.prototype.initialised = function initialised() {
+	return this.loggedIn;
+}
+
 SteamUser.prototype.idlingCards = function idlingCards() {
 	return this.curIdling && this.curIdling.indexOf(":cards") > -1;
 }
@@ -266,6 +270,20 @@ bot.loadExtension = function loadExtension(ext) {
 		}
 	} else {
 		console.log("No file found for ext "+ext);
+	}
+}
+
+bot.debugModes = [];
+bot.getDebugModes = function getDebugModes() {
+	return bot.debugModes.concat();
+}
+bot.debug = function debug(mode) {
+	// op = op || getDefaultOutput();
+	var op = getDefaultOutput();
+	if (bot.getDebugModes().includes("*") || bot.getDebugModes().includes(mode)) {
+		// op(msg);
+		var c = 0;
+		op.apply(null, ["DEBUG|"+mode].concat(Array.prototype.slice.call(arguments).filter(function(x) {return c++ > 0;})));
 	}
 }
 
@@ -735,30 +753,36 @@ function cards(user, op) {
 				var str = JSON.stringify(cardApps[i]);
 				op(user.name+": "+str);
 			}
-		});
+		}, true);
 	}
 }
 
 function checkCards(user, op) {
 	op = op || function(){};
 	if (!Cheerio || !request) {
+		bot.debug("cards", "cheerio or request not loaded");
 		return;
 	}
 	if (user.cardCheckRunning) {
+		bot.debug("cardsExt", "already a card check running on "+user.name);
 		return;
 	}
 	if (!user.idlingCards()) {
+		bot.debug("cardsExt", user.name+" isn't idling cards");
 		return;
 	}
 	var lastCheck = user.lastCheck || 0;
 	var lastDiff = (+new Date) - lastCheck;
 	var delay = user.newItems ? user.getOpt("cardCheckMinDelay") : (user.getOpt("cardCheckDelay") || settings["cardCheckDelay"] || (5 * 60));
 	if (lastDiff < delay * 1000) {
+		bot.debug("cardsExt", "still in delay for "+user.name);
 		return;
 	}
 	var f = function(u, cardApps) {
+		bot.debug("cards", "received card apps on "+user.name);
 		user.newItems = false;
 		if (cardApps.length <= 0) {
+			bot.debug("cards", "current page ("+u.cardPage+") empty, jumping to page "+(u.cardPage+1));
 			u.cardPage++;
 			return;
 		}
@@ -793,28 +817,33 @@ function checkCards(user, op) {
 		for (var i = 0; i < ca.length; i++) {
 			cas.push(ca[i].appid);
 		}
+		bot.debug("cards", "card apps to idle for "+user.name+": ", cas);
 		user.currentCardApps = cas;
 		user.allCardApps = cardApps;
 	};
 	cardCheck(user, f);
 }
 
-function cardCheck(user, callback) {
+function cardCheck(user, callback, keepLastCheck) {
 	if (!Cheerio || !request) {
 		return false;
 	}
 	var g_Jar = request.jar();
 	var g_Page = user.cardPage;
 	if (!user.appOwnershipCached) {
+		bot.debug("cards", user.name+" not ready for card idling, app ownership not cached yet");
 		return false;
 	}
 	if (!user.cookies) {
+		bot.debug("cards", user.name+" not ready for card idling, no cookies found");
 		return false;
 	}
 	if (!user.licenses) {
+		bot.debug("cards", user.name+" not ready for card idling, no licenses found");
 		return false;
 	}
 	if (!user.picsCache || !user.picsCache.packages) {
+		bot.debug("cards", user.name+" not ready for card idling, no picsCache found");
 		return false;
 	}
 	user.cookies.forEach(function(cookie) {
@@ -822,15 +851,24 @@ function cardCheck(user, callback) {
 	});
 	var rq = request.defaults({"jar": g_Jar});
 	user.cardCheckRunning = true;
-	user.lastCheck = +new Date;
+	if (!keepLastCheck) {
+		user.lastCheck = +new Date;
+	}
+	bot.debug("cards", "now sending request for badge page "+g_Page+" on acc "+user.name);
 	rq("https://steamcommunity.com/my/badges/?p="+g_Page, function(err, response, body) {
 		user.cardCheckRunning = false;
 		if (err || response.statusCode != 200) {
 			// op("Couldn't request badge page: "+(err||"HTTP error "+response.statusCode));
-			user.lastCheck = (+new Date) - user.getOpt("cardCheckDelay") * 1000 + user.getOpt("cardCheckFailDelay") * 1000;
+			if (!keepLastCheck) {
+				user.lastCheck = (+new Date) - user.getOpt("cardCheckDelay") * 1000 + user.getOpt("cardCheckFailDelay") * 1000; //could also do this with the param tho
+			}
+			bot.debug("cards", "badge request for "+user.name+" failed, returned "+(err ? "error" : "status code " + response.statusCode));
 			return false;
 		}
-		user.lastCheck = +new Date;
+		bot.debug("cards", "badge request for "+user.name+" arrived, now parsing...");
+		if (!keepLastCheck) {
+			user.lastCheck = +new Date;
+		}
 		var ownedPackages = user.licenses.map(function(license) {
 			var pkg = user.picsCache.packages[license.package_id].packageinfo;
 			pkg.time_created = license.time_created;
@@ -913,6 +951,7 @@ function cardCheck(user, callback) {
 				cardApps.push(gameObj);
 			}
 		}
+		bot.debug("cards", "finished parsing badge page for "+user.name+", found "+cardApps.length+" game"+(cardApps.length == 1 ? "" : "s"));
 		if (callback) {
 			callback(user, cardApps);
 		}
@@ -1163,6 +1202,9 @@ function updateOnlineStatus(name) {
 function tick() {
 	var frLevelChecked = false;
 	for (var i in users) {
+		if (!users[i].initialised()) {
+			continue;
+		}
 		if (users[i].idlingCards()) {
 			checkCards(users[i]); //only check if currently idling cards	
 		}
@@ -1193,6 +1235,8 @@ function login(name, pw, authcode, secret, games, online, callback, opts) {
 	ac = SteamTotp.getAuthCode("");
 	
 	user.cardPage = 1;
+	
+	user.loggedIn = false;
 	 
 	user.on("error", function(err) {
 		if (err == "Error: InvalidPassword") {
@@ -1231,6 +1275,7 @@ function login(name, pw, authcode, secret, games, online, callback, opts) {
 		updateOnlineStatus(name);
 		user.curIdling = user.curIdling || games || [221410];
 		idle(user, user.curIdling);
+		user.loggedIn = true;
 	}
 	 
 	user.on("webSession", function(sessionID, cookies) {
@@ -1271,7 +1316,11 @@ function login(name, pw, authcode, secret, games, online, callback, opts) {
 	});
 	
 	user.on("newItems", function(count) {
+		if (!user.initialised()) {
+			return;
+		}
 		user.newItems = true;
+		bot.debug("cards", "new items arrived on "+user.name+", trying to check cards...");
 		checkCards(user);
 	});
 	
@@ -3202,6 +3251,14 @@ if (settings["tick_delay"] > 0) {
 timing.stop();
 if (process.argv.includes("timing")) {
 	timing.printDetails();
+}
+for (var i = 0; i < process.argv.length; i++) {
+	var sS = "debug:";
+	if (process.argv[i].substr(0, sS.length) === sS) {
+		var dbM = process.argv[i].substr(sS.length);
+		var dbMAr = dbM.replace(/[\s\;]/, ",").split(",").filter(function(x) {return typeof x == "string" && x.length > 0;});
+		bot.debugModes = dbMAr;
+	}
 }
 
 if (settings["autologin"]) {
