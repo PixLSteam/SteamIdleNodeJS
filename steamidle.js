@@ -137,6 +137,7 @@ var users = {};
 var alarms = {};
 
 var bot = {};
+global.bot = bot;
 bot.users = users;
 bot.alarms = alarms;
 bot.log = function log() {
@@ -200,6 +201,72 @@ bot.commands.removeCommand = function removeCommand(cmd) {
 }
 bot.commands.getCommands = function getCommands() {
 	return clone(bot.commands.list);
+}
+
+bot.getSettings = function getSettings() {
+	return clone(settings);
+}
+bot.getSetting = function getSetting(set) {
+	var v = settings[set];
+	if (typeof v == "object") {
+		if (v == null) {
+			return null;
+		} else {
+			return clone(v);
+		}
+	} else if (typeof v == "string") {
+		return v;
+	} else if (v instanceof Array) {
+		return v.concat();
+	} else if (typeof v == "number") {
+		return v;
+	}
+	return v;
+}
+
+bot.loadExtensions = function loadExtensions() {
+	
+}
+bot.loadExtension = function loadExtension(ext) {
+	var files = [
+		"%(ext)/main.js",
+		"%(ext)/init.js",
+		"%(ext)/start.js",
+		"%(ext)/module.js",
+		"%(ext).js",
+		"%(ext)",
+		""
+	];
+	var file;
+	for (var i = 0; i < files.length; i++) {
+		var f = files[i].replace("%(ext)", ext);
+		console.log("file: "+f, fs.existsSync(f));
+		if (f.length > 0 && fs.existsSync(f)) {
+			file = f;
+			break;
+		}
+	}
+	if (file) {
+		var fstr = file;
+		if (fstr.substr(0, 1) !== "/") {
+			fstr = "./"+fstr;
+		}
+		var kek = require(fstr);
+		console.log(kek);
+		if (typeof kek == "function") {
+			kek();
+		} else if (typeof kek == "object" && kek) {
+			if (kek.init && typeof kek.init == "function") {
+				kek.init();
+			} else {
+				//--
+			}
+		} else {
+			
+		}
+	} else {
+		console.log("No file found for ext "+ext);
+	}
 }
 
 function reverseString(str) {
@@ -685,11 +752,12 @@ function checkCards(user, op) {
 	}
 	var lastCheck = user.lastCheck || 0;
 	var lastDiff = (+new Date) - lastCheck;
-	var delay = user.getOpt("cardCheckDelay") || settings["cardCheckDelay"] || (5 * 60);
+	var delay = user.newItems ? user.getOpt("cardCheckMinDelay") : (user.getOpt("cardCheckDelay") || settings["cardCheckDelay"] || (5 * 60));
 	if (lastDiff < delay * 1000) {
 		return;
 	}
 	var f = function(u, cardApps) {
+		user.newItems = false;
 		if (cardApps.length <= 0) {
 			u.cardPage++;
 			return;
@@ -1203,7 +1271,8 @@ function login(name, pw, authcode, secret, games, online, callback, opts) {
 	});
 	
 	user.on("newItems", function(count) {
-		
+		user.newItems = true;
+		checkCards(user);
 	});
 	
 	user.on("newComments", function(count, myItems, discussions) {
@@ -1389,7 +1458,8 @@ settings = {
 	cardIdleReachCardTimeFirst: false, //whether to idle all games up to 2H before trying to get cards, currently disabled
 	maxGames: 30, //max games to idle at once per account
 	cardCheckDelay: 5 * 60,
-	cardCheckFailDelay: 10
+	cardCheckFailDelay: 10,
+	cardCheckMinDelay: 60
 };
 function loadSettings(display_output) {
 	try {
@@ -2289,7 +2359,7 @@ function runCommand(cmd, callback, output, via) { //via: steam, cmd
 					users[i].curIdling = games;
 					idle(users[i], users[i].curIdling);
 					var g2 = processGamesArray(games, users[i]);
-					var len = g2.length;
+					var len = (g2 instanceof Array ? g2.length : 1);
 					if (games.length > 0 && games[0] === ":cards") {
 						len = "cards";
 					}
@@ -2621,11 +2691,27 @@ function runCommand(cmd, callback, output, via) { //via: steam, cmd
 					}
 				}
 				if (hasCardGames) {
-					op(i+" has "+totalCards+" card drops remaining in "+totalGames+" game"+(totalGames == 1 ? "" : "s"));
+					op(i+" has "+totalCards+" card drop"+(totalCards == 1 ? "" : "s")+" remaining in "+totalGames+" game"+(totalGames == 1 ? "" : "s"));
 				} else {
 					op(i+" has no card drops remaining or didn't idle cards before");
 				}
 			}
+		} catch(err) {
+			op("An error occured: "+err);
+		}
+		if (callback) {
+			return callback();
+		} else {
+			return;
+		}
+	}
+	if (cmd[0] == "ext") {
+		var ext = cmd[1];
+		try {
+			if (!ext) {
+				throw Error("No extension provided");
+			}
+			bot.loadExtension(ext);
 		} catch(err) {
 			op("An error occured: "+err);
 		}
