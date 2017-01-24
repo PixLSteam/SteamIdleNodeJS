@@ -971,7 +971,8 @@ function cardCheck(user, callback, keepLastCheck) {
 		});
 	}
 	if (bot.getSetting("cardsWebLogOnEveryTime")) {
-		bot.once("webSession", f);
+		user.once("webSession", f);
+		user.webLogOn();
 	} else {
 		f(user.sessionID, user.cookies);
 	}
