@@ -865,6 +865,15 @@ function cardCheck(user, callback, keepLastCheck) {
 			bot.debug("cards", "badge request for "+user.name+" failed, returned "+(err ? "error" : "status code " + response.statusCode));
 			return false;
 		}
+		if (bot.writebadgepage) {
+			try {
+				var fn = "./badges_"+user.name+"_"+processStr(":%Y-%m-%d_%H-%M-%S")+".html";
+				fs.writeFileSync(fn, body);
+				bot.debug("cards", "successfully wrote the badge page for "+user.name+" to a file");
+			} catch(err) {
+				bot.debug("cards", "error writing the badge page for "+user.name+" to a file");
+			}
+		}
 		bot.debug("cards", "badge request for "+user.name+" arrived, now parsing...");
 		if (!keepLastCheck) {
 			user.lastCheck = +new Date;
@@ -3259,6 +3268,9 @@ for (var i = 0; i < process.argv.length; i++) {
 		var dbMAr = dbM.replace(/[\s\;]/, ",").split(",").filter(function(x) {return typeof x == "string" && x.length > 0;});
 		bot.debugModes = dbMAr;
 	}
+}
+if (process.argv.includes("writebadgepage")) {
+	bot.writebadgepage = true;
 }
 
 if (settings["autologin"]) {
