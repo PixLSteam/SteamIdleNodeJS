@@ -846,125 +846,135 @@ function cardCheck(user, callback, keepLastCheck) {
 		bot.debug("cards", user.name+" not ready for card idling, no picsCache found");
 		return false;
 	}
-	user.cookies.forEach(function(cookie) {
-		g_Jar.setCookie(cookie, "https://steamcommunity.com");
-	});
-	var rq = request.defaults({"jar": g_Jar});
 	user.cardCheckRunning = true;
 	if (!keepLastCheck) {
 		user.lastCheck = +new Date;
 	}
-	bot.debug("cards", "now sending request for badge page "+g_Page+" on acc "+user.name);
-	rq("https://steamcommunity.com/my/badges/?p="+g_Page, function(err, response, body) {
-		user.cardCheckRunning = false;
-		if (err || response.statusCode != 200) {
-			// op("Couldn't request badge page: "+(err||"HTTP error "+response.statusCode));
-			if (!keepLastCheck) {
-				user.lastCheck = (+new Date) - user.getOpt("cardCheckDelay") * 1000 + user.getOpt("cardCheckFailDelay") * 1000; //could also do this with the param tho
-			}
-			bot.debug("cards", "badge request for "+user.name+" failed, returned "+(err ? "error" : "status code " + response.statusCode));
-			return false;
-		}
-		if (bot.writebadgepage) {
-			try {
-				var fn = "./badges_"+user.name+"_"+processStr(":%Y-%m-%d_%H-%M-%S")+".html";
-				fs.writeFileSync(fn, body);
-				bot.debug("cards", "successfully wrote the badge page for "+user.name+" to a file");
-			} catch(err) {
-				bot.debug("cards", "error writing the badge page for "+user.name+" to a file");
-			}
-		}
-		bot.debug("cards", "badge request for "+user.name+" arrived, now parsing...");
+	var f = function(sessionID, cookies) {
+		cookies.forEach(function(cookie) {
+			g_Jar.setCookie(cookie, "https://steamcommunity.com");
+		});
+		var rq = request.defaults({"jar": g_Jar});
 		if (!keepLastCheck) {
 			user.lastCheck = +new Date;
 		}
-		var ownedPackages = user.licenses.map(function(license) {
-			var pkg = user.picsCache.packages[license.package_id].packageinfo;
-			pkg.time_created = license.time_created;
-			pkg.payment_method = license.payment_method;
-			return pkg;
-		}).filter(function(pkg) {
-			return !(pkg.extended && pkg.extended.freeweekend);
-		});
-		var $_ = Cheerio.load(body);
-		var infolines = $_(".progress_info_bold");
-		var cardApps = [];
-		for (var i = 0; i < infolines.length; i++) {
-			// var match = $_(infolines[i]).text().(/(\d+) card drops? remaining/);
-			var match = $_(infolines[i]).text().match(/(\d+)/);
-			var br = $_(infolines[i]).closest('.badge_row');
-			var ael = br.find('.badge_title_playgame a');
-			var href = ael.attr('href');
-			// for (var i in ael) {
-				// op(i+" "+typeof ael[i]);
-			// }
-			// op(""+br.html());
-			// op(""+ael.html());
-			// op(""+ael.attr("href"));
-			// return;
-			// continue;
-			// op(typeof ael + ael);
-			// op(typeof href + href);
-			if (!match || !href) {
-				continue;
-			}
-			// var overlay = br.find(".badge_row_overlay");
-			// if (!overlay) {
-				// continue;
-			// }
-			
-			var idm = href ? href.match(/steam:\/\/run\/(\d+)/) : null;
-			var appid = (idm ? idm[1] : href);
-			
-			//check if app is owned, idm
-			if(!user.picsCache.apps.hasOwnProperty(appid)) {
-				continue;
-			}
-			
-			var newlyPurchased = false;
-			var lastPkg;
-			// Find the package(s) in which we own this app
-			ownedPackages.filter(function(pkg) {
-				return pkg.appids && pkg.appids.indexOf(appid) != -1;
-			}).forEach(function(pkg) {
-				var timeCreatedAgo = Math.floor(Date.now() / 1000) - pkg.time_created;
-				if(timeCreatedAgo < (60 * 60 * 24 * 14) && [Steam.EPaymentMethod.ActivationCode, Steam.EPaymentMethod.GuestPass, Steam.EPaymentMethod.Complimentary].indexOf(pkg.payment_method) == -1) {
-					newlyPurchased = true;
+		bot.debug("cards", "now sending request for badge page "+g_Page+" on acc "+user.name);
+		rq("https://steamcommunity.com/my/badges/?p="+g_Page, function(err, response, body) {
+			user.cardCheckRunning = false;
+			if (err || response.statusCode != 200) {
+				// op("Couldn't request badge page: "+(err||"HTTP error "+response.statusCode));
+				if (!keepLastCheck) {
+					user.lastCheck = (+new Date) - user.getOpt("cardCheckDelay") * 1000 + user.getOpt("cardCheckFailDelay") * 1000; //could also do this with the param tho
 				}
-				lastPkg = pkg;
+				bot.debug("cards", "badge request for "+user.name+" failed, returned "+(err ? "error" : "status code " + response.statusCode));
+				return false;
+			}
+			if (bot.writebadgepage) {
+				try {
+					var fn = "./badges_"+user.name+"_"+processStr(":%Y-%m-%d_%H-%M-%S")+".html";
+					fs.writeFileSync(fn, body);
+					bot.debug("cards", "successfully wrote the badge page for "+user.name+" to a file");
+				} catch(err) {
+					bot.debug("cards", "error writing the badge page for "+user.name+" to a file");
+				}
+			}
+			bot.debug("cards", "badge request for "+user.name+" arrived, now parsing...");
+			if (!keepLastCheck) {
+				user.lastCheck = +new Date;
+			}
+			var ownedPackages = user.licenses.map(function(license) {
+				var pkg = user.picsCache.packages[license.package_id].packageinfo;
+				pkg.time_created = license.time_created;
+				pkg.payment_method = license.payment_method;
+				return pkg;
+			}).filter(function(pkg) {
+				return !(pkg.extended && pkg.extended.freeweekend);
 			});
-			
-			var playtime = br.find(".badge_title_stats").html().match(/(\d+\.\d+)/);
-			if (!playtime) {
-				playtime = 0.0;
-			} else {
-				playtime = parseFloat(playtime[1], 10);
-				if (isNaN(playtime)) {
+			var $_ = Cheerio.load(body);
+			var infolines = $_(".progress_info_bold");
+			var cardApps = [];
+			for (var i = 0; i < infolines.length; i++) {
+				// var match = $_(infolines[i]).text().(/(\d+) card drops? remaining/);
+				var match = $_(infolines[i]).text().match(/(\d+)/);
+				var br = $_(infolines[i]).closest('.badge_row');
+				var ael = br.find('.badge_title_playgame a');
+				var href = ael.attr('href');
+				// for (var i in ael) {
+					// op(i+" "+typeof ael[i]);
+				// }
+				// op(""+br.html());
+				// op(""+ael.html());
+				// op(""+ael.attr("href"));
+				// return;
+				// continue;
+				// op(typeof ael + ael);
+				// op(typeof href + href);
+				if (!match || !href) {
+					continue;
+				}
+				// var overlay = br.find(".badge_row_overlay");
+				// if (!overlay) {
+					// continue;
+				// }
+				
+				var idm = href ? href.match(/steam:\/\/run\/(\d+)/) : null;
+				var appid = (idm ? idm[1] : href);
+				
+				//check if app is owned, idm
+				if(!user.picsCache.apps.hasOwnProperty(appid)) {
+					continue;
+				}
+				
+				var newlyPurchased = false;
+				var lastPkg;
+				// Find the package(s) in which we own this app
+				ownedPackages.filter(function(pkg) {
+					return pkg.appids && pkg.appids.indexOf(appid) != -1;
+				}).forEach(function(pkg) {
+					var timeCreatedAgo = Math.floor(Date.now() / 1000) - pkg.time_created;
+					if(timeCreatedAgo < (60 * 60 * 24 * 14) && [Steam.EPaymentMethod.ActivationCode, Steam.EPaymentMethod.GuestPass, Steam.EPaymentMethod.Complimentary].indexOf(pkg.payment_method) == -1) {
+						newlyPurchased = true;
+					}
+					lastPkg = pkg;
+				});
+				
+				var playtime = br.find(".badge_title_stats").html().match(/(\d+\.\d+)/);
+				if (!playtime) {
 					playtime = 0.0;
+				} else {
+					playtime = parseFloat(playtime[1], 10);
+					if (isNaN(playtime)) {
+						playtime = 0.0;
+					}
+				}
+				
+				var dropsLeft = 0;
+				
+				if (match && match[1] && parseInt(match[1])) {
+					dropsLeft = parseInt(match[1]);
+					// op(match[1]+" cards in "+appid+" with a playtime of "+(playtime)+"h");
+				}
+				var gameObj = {};
+				gameObj.appid = parseInt(appid);
+				gameObj.dropsLeft = parseInt(dropsLeft);
+				gameObj.playtime = parseFloat(playtime);
+				gameObj.time_created = (lastPkg ? lastPkg.time_created : 0);
+				gameObj.newlyPurchased = newlyPurchased;
+				if (dropsLeft > 0) {
+					cardApps.push(gameObj);
 				}
 			}
-			
-			var dropsLeft = 0;
-			
-			if (match && match[1] && parseInt(match[1])) {
-				dropsLeft = parseInt(match[1]);
-				// op(match[1]+" cards in "+appid+" with a playtime of "+(playtime)+"h");
+			bot.debug("cards", "finished parsing badge page for "+user.name+", found "+cardApps.length+" game"+(cardApps.length == 1 ? "" : "s"));
+			if (callback) {
+				callback(user, cardApps);
 			}
-			var gameObj = {};
-			gameObj.appid = parseInt(appid);
-			gameObj.dropsLeft = parseInt(dropsLeft);
-			gameObj.playtime = parseFloat(playtime);
-			gameObj.time_created = (lastPkg ? lastPkg.time_created : 0);
-			gameObj.newlyPurchased = newlyPurchased;
-			if (dropsLeft > 0) {
-				cardApps.push(gameObj);
-			}
-		}
-		bot.debug("cards", "finished parsing badge page for "+user.name+", found "+cardApps.length+" game"+(cardApps.length == 1 ? "" : "s"));
-		if (callback) {
-			callback(user, cardApps);
-		}
-	});
+		});
+	}
+	if (bot.getSetting("cardsWebLogOnEveryTime")) {
+		bot.once("webSession", f);
+	} else {
+		f(user.sessionID, user.cookies);
+	}
 }
 
 function checkCardsCmd(user, op) {
@@ -1288,8 +1298,10 @@ function login(name, pw, authcode, secret, games, online, callback, opts) {
 	}
 	 
 	user.on("webSession", function(sessionID, cookies) {
-		user.sessionID = sessionID;
-		user.cookies = cookies;
+		if (!bot.getSetting("cardsWebLogOnEveryTime")) {
+			user.sessionID = sessionID;
+			user.cookies = cookies;
+		}
 		if (firstLoginTrigger) {
 			console.log("Logged in!");
 			users[name] = user;
@@ -1517,7 +1529,8 @@ settings = {
 	maxGames: 30, //max games to idle at once per account
 	cardCheckDelay: 5 * 60,
 	cardCheckFailDelay: 10,
-	cardCheckMinDelay: 60
+	cardCheckMinDelay: 60,
+	cardsWebLogOnEveryTime: true
 };
 function loadSettings(display_output) {
 	try {
