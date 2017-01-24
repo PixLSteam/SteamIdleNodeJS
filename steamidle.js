@@ -834,7 +834,7 @@ function cardCheck(user, callback, keepLastCheck) {
 		bot.debug("cards", user.name+" not ready for card idling, app ownership not cached yet");
 		return false;
 	}
-	if (!user.cookies || bot.getSetting("cardsWebLogOnEveryTime")) {
+	if (!user.cookies && !bot.getSetting("cardsWebLogOnEveryTime")) {
 		bot.debug("cards", user.name+" not ready for card idling, no cookies found");
 		return false;
 	}
