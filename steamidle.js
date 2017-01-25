@@ -783,6 +783,8 @@ function checkCards(user, op) {
 		user.newItems = false;
 		if (cardApps.length <= 0) {
 			bot.debug("cards", "current page ("+u.cardPage+") empty, jumping to page "+(u.cardPage+1));
+			user.currentCardApps = [];
+			user.allCardApps = cardApps;
 			u.cardPage++;
 			return;
 		}
@@ -891,6 +893,13 @@ function cardCheck(user, callback, keepLastCheck) {
 				return !(pkg.extended && pkg.extended.freeweekend);
 			});
 			var $_ = Cheerio.load(body);
+			/*
+			var brlen = $_(".badge_row").length;
+			if (!user.badgeRowLengths) {
+				user.badgeRowLengths = {};
+			}
+			user.badgeRowLengths[g_Page] = brlen; //*/
+			// bot.debug("cards", user.name+" has a badge row length of "+$_(".badge_row").length+" on badge page "+g_Page);
 			var infolines = $_(".progress_info_bold");
 			var cardApps = [];
 			for (var i = 0; i < infolines.length; i++) {
@@ -2829,6 +2838,36 @@ function runCommand(cmd, callback, output, via) { //via: steam, cmd
 			} catch(err) {
 				op("An error occured: "+err);
 			}
+		}
+		if (callback) {
+			return callback();
+		} else {
+			return;
+		}
+	}
+	if (cmd[0] == "badgepagelength") {
+		var acc = cmd[1];
+		try {
+			throw Error("Command disabled due to breaking the card idling. Edit the script to reenable this command");
+			if (!acc) {
+				throw Error("No account supplied. This command may not be applied to all account at once");
+			}
+			if (!users[acc]) {
+				throw Error(acc+" currently isn't logged in");
+			}
+			var bp = [1, 2, 1337];
+			var bpi = 0;
+			var f = function() {
+				if (bpi >= bp.length) {
+					return;
+				}
+				var cbp = bp[bpi++];
+				users[acc].cardPage = cbp;
+				cardCheck(users[acc], f, true);
+			}
+			f();
+		} catch(err) {
+			op("An error occured: "+err);
 		}
 		if (callback) {
 			return callback();
