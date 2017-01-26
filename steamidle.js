@@ -791,6 +791,11 @@ function checkCards(user, op) {
 		if (cardApps.length <= 0) {
 			user.currentCardApps = [];
 			user.allCardApps = cardApps;
+			if (u.badgePageHashes) {
+				bot.debug("cards", "Badge page hash object found for "+u.name, u.badgePageHashes);
+			} else {
+				bot.debug("cards", "No badge page hash found for "+u.name);
+			}
 			if (u.badgePageHashes && user.badgePageHashes[u.cardPage - 1] && user.badgePageHashes[u.cardPage - 1] === user.badgePageHashes[u.cardPage]) {
 				bot.debug("cards", "current page ("+u.cardPage+") has the same hash as page "+(u.cardPage-1)+", jumping back to page 1");
 				u.cardPage = 1;
