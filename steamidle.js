@@ -47,6 +47,7 @@ var community = new SteamCommunity();
 //will probably make them optional
 var Cheerio;
 var request;
+var md5;
 try {
 	Cheerio = require("cheerio");timing.step("cheerio loaded");
 } catch(err) {
@@ -57,7 +58,13 @@ try {
 	request = require("request");timing.step("request loaded");
 } catch(err) {
 	request = null;
-	console.log("Coudln't load request");
+	console.log("Couldn't load request");
+}
+try {
+	md5 = require("js-md5");timing.step("js-md5 loaded");
+} catch(err) {
+	md5 = null;
+	console.log("Couldn't load js-md5");
 }
 
 var SteamID = require("steamid");timing.step("steamid loaded"); //already dependency, so doesn't make a difference for the admin
@@ -782,10 +789,15 @@ function checkCards(user, op) {
 		bot.debug("cards", "received card apps on "+user.name);
 		user.newItems = false;
 		if (cardApps.length <= 0) {
-			bot.debug("cards", "current page ("+u.cardPage+") empty, jumping to page "+(u.cardPage+1));
 			user.currentCardApps = [];
 			user.allCardApps = cardApps;
-			u.cardPage++;
+			if (u.badgePageHashes && user.badgePageHashes[u.cardPage - 1] && user.badgePageHashes[u.cardPage - 1] === user.badgePageHashes[u.cardPage]) {
+				bot.debug("cards", "current page ("+u.cardPage+") has the same hash as page "+(u.cardPage-1)+", jumping back to page 1");
+				u.cardPage = 1;
+			} else 
+				bot.debug("cards", "current page ("+u.cardPage+") empty, jumping to page "+(u.cardPage+1));
+				u.cardPage++;
+			}
 			return;
 		}
 		var cardIdleReachCardTimeFirst = u.getOpt("cardIdleReachCardTimeFirst");
@@ -893,6 +905,12 @@ function cardCheck(user, callback, keepLastCheck) {
 				return !(pkg.extended && pkg.extended.freeweekend);
 			});
 			var $_ = Cheerio.load(body);
+			if (!user.badgePageHashes) {
+				user.badgePageHashes = {};
+			}
+			if (md5) {
+				user.badgePageHashes[g_Page] = md5(body);
+			}
 			/*
 			var brlen = $_(".badge_row").length;
 			if (!user.badgeRowLengths) {
