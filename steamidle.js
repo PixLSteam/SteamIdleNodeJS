@@ -1664,10 +1664,16 @@ function gamesVarToArray(v) {
 	return v;
 }
 function accGetOpts(i) {
-	return {
+	var obj = {
 		autoaccept_min_lvl: (accs[i]["autoaccept_min_lvl"] == undefined || accs[i]["autoaccept_min_lvl"] == null ? -1 : accs[i]["autoaccept_min_lvl"]),
 		games_blacklist: (accs[i]["games_blacklist"] ? ((typeof (accs[i]["games_blacklist"])) === "string" ? (accs[i]["games_blacklist"].match(/^\d+(,\d+)*$/) ? accs[i]["games_blacklist"].split(",").map(function(x){return parseInt(x)}) : (parseInt(accs[i]["games_blacklist"]) ? [parseInt(accs[i]["games_blacklist"])] : [])) : (accs[i]["games_blacklist"] instanceof Array ? accs[i]["games_blacklist"].filter(function(x){return !isNaN(parseInt(x))}).map(function(x){return parseInt(x)}) : 	[])) : [])
 	};
+	for (var ix in i) {
+		if (i.hasOwnProperty(ix) && !obj.hasOwnProperty(ix) && !obj[ix]) {
+			obj[ix] = i[ix];
+		}
+	}
+	return obj;
 }
 function doAccId(index) {
 	if (index >= accids.length) {
