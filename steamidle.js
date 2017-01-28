@@ -122,6 +122,13 @@ SteamUser.prototype.setPersona = function(state, name) {
 	});
 };
 
+Array.prototype.spliceN = function() {
+	var sp = this.concat();
+	sp.splice.apply(sp, arguments);
+	// Array.prototype.splice.apply(sp, arguments);
+	return sp;
+}
+
 function empty(obj) {
 	for (var i in obj) {
 		if (obj.hasOwnProperty(i)) {
@@ -791,14 +798,18 @@ function checkCards(user, op) {
 		if (cardApps.length <= 0) {
 			user.currentCardApps = [];
 			user.allCardApps = cardApps;
-			if (u.badgePageHashes) {
-				bot.debug("cards", "Badge page hash object found for "+u.name, u.badgePageHashes);
-			} else {
-				bot.debug("cards", "No badge page hash found for "+u.name);
-			}
-			if (u.badgePageHashes && user.badgePageHashes[u.cardPage - 1] && user.badgePageHashes[u.cardPage - 1] === user.badgePageHashes[u.cardPage]) {
-				bot.debug("cards", "current page ("+u.cardPage+") has the same hash as page "+(u.cardPage-1)+", jumping back to page 1");
+			// if (u.badgePageHashes) {
+				// bot.debug("cards", "Badge page hash object found for "+u.name);//, u.badgePageHashes);
+			// } else {
+				// bot.debug("cards", "No badge page hash found for "+u.name);
+			// }
+			// bot.debug("cards", u.firstGameOnPage);
+			if (u.firstGameOnPage && user.firstGameOnPage[u.cardPage - 1] && user.firstGameOnPage[u.cardPage - 1] === user.firstGameOnPage[u.cardPage]) {
+			// if (u.badgePageHashes && user.badgePageHashes[u.cardPage - 1] && user.badgePageHashes[u.cardPage - 1] === user.badgePageHashes[u.cardPage]) {
+				// bot.debug("cards", "current page ("+u.cardPage+") has the same hash as page "+(u.cardPage-1)+", jumping back to page 1");
+				bot.debug("cards", "current page ("+u.cardPage+") has the same first app as page "+(u.cardPage-1)+", jumping back to page 1");
 				u.cardPage = 1;
+				u.firstGameOnPage = {};
 			} else {
 				bot.debug("cards", "current page ("+u.cardPage+") empty, jumping to page "+(u.cardPage+1));
 				u.cardPage++;
@@ -832,9 +843,14 @@ function checkCards(user, op) {
 		if (!cardIdleReachCardTimeFirst || !cardIdleMultiHours) {
 			ca.splice(1, Infinity);
 		}
-		var cas = [];
-		for (var i = 0; i < ca.length; i++) {
-			cas.push(ca[i].appid);
+		var cas;
+		if (true) {
+			cas = [];
+			for (var i = 0; i < ca.length; i++) {
+				cas.push(ca[i].appid);
+			}
+		} else {
+			cas = ca.map(function(x){return x.appid});
 		}
 		bot.debug("cards", "card apps to idle for "+user.name+": ", cas);
 		user.currentCardApps = cas;
@@ -910,6 +926,9 @@ function cardCheck(user, callback, keepLastCheck) {
 				return !(pkg.extended && pkg.extended.freeweekend);
 			});
 			var $_ = Cheerio.load(body);
+			if (!user.firstGameOnPage) {
+				user.firstGameOnPage = {};
+			}
 			if (!user.badgePageHashes) {
 				user.badgePageHashes = {};
 			}
@@ -925,6 +944,7 @@ function cardCheck(user, callback, keepLastCheck) {
 			user.badgeRowLengths[g_Page] = brlen; //*/
 			// bot.debug("cards", user.name+" has a badge row length of "+$_(".badge_row").length+" on badge page "+g_Page);
 			var infolines = $_(".progress_info_bold");
+			bot.debug("cards", infolines.length+" infolines on page "+g_Page+" on "+user.name);
 			var cardApps = [];
 			for (var i = 0; i < infolines.length; i++) {
 				// var match = $_(infolines[i]).text().(/(\d+) card drops? remaining/);
@@ -932,6 +952,20 @@ function cardCheck(user, callback, keepLastCheck) {
 				var br = $_(infolines[i]).closest('.badge_row');
 				var ael = br.find('.badge_title_playgame a');
 				var href = ael.attr('href');
+				var bro = br.find(".badge_row_overlay");
+				var broh = bro.attr("href");
+				
+				var idm = href ? href.match(/steam:\/\/run\/(\d+)/) : null;
+				var appid = (idm ? idm[1] : href);
+				
+				// bot.debug("cards", ael.html(), href, idm, appid, parseInt(appid), user.picsCache.apps.hasOwnProperty(appid), user.firstGameOnPage[g_Page]);
+				// var appid2 = broh.match(/^https?:\/\/(?:www\.)?steamcommunity\.com\/(?:.*)\/gamecards\/(?:\d+)\/?$/);
+				var appid2 = broh.match(/\/gamecards\/(\d+)\/?$/);
+				appid2 = appid2 ? appid2[1] : null;
+				if (appid2 && parseInt(appid2) && user.picsCache.apps.hasOwnProperty(appid2) && !user.firstGameOnPage[g_Page]) {
+					user.firstGameOnPage[g_Page] = parseInt(appid2);
+					bot.debug("cards", "set first game on page "+g_Page+" for "+user.name+" to "+appid2);
+				}
 				// for (var i in ael) {
 					// op(i+" "+typeof ael[i]);
 				// }
@@ -950,8 +984,7 @@ function cardCheck(user, callback, keepLastCheck) {
 					// continue;
 				// }
 				
-				var idm = href ? href.match(/steam:\/\/run\/(\d+)/) : null;
-				var appid = (idm ? idm[1] : href);
+				
 				
 				//check if app is owned, idm
 				if(!user.picsCache.apps.hasOwnProperty(appid)) {
@@ -993,7 +1026,11 @@ function cardCheck(user, callback, keepLastCheck) {
 				gameObj.playtime = parseFloat(playtime);
 				gameObj.time_created = (lastPkg ? lastPkg.time_created : 0);
 				gameObj.newlyPurchased = newlyPurchased;
-				if (dropsLeft > 0) {
+				var onBlacklist = user.getOptComb("games_blacklist").indexOf(gameObj.appid) > -1;
+				if (onBlacklist) {
+					//ignore message?
+				}
+				if (dropsLeft > 0 && !onBlacklist) {
 					cardApps.push(gameObj);
 				}
 			}
@@ -1668,9 +1705,9 @@ function accGetOpts(i) {
 		autoaccept_min_lvl: (accs[i]["autoaccept_min_lvl"] == undefined || accs[i]["autoaccept_min_lvl"] == null ? -1 : accs[i]["autoaccept_min_lvl"]),
 		games_blacklist: (accs[i]["games_blacklist"] ? ((typeof (accs[i]["games_blacklist"])) === "string" ? (accs[i]["games_blacklist"].match(/^\d+(,\d+)*$/) ? accs[i]["games_blacklist"].split(",").map(function(x){return parseInt(x)}) : (parseInt(accs[i]["games_blacklist"]) ? [parseInt(accs[i]["games_blacklist"])] : [])) : (accs[i]["games_blacklist"] instanceof Array ? accs[i]["games_blacklist"].filter(function(x){return !isNaN(parseInt(x))}).map(function(x){return parseInt(x)}) : 	[])) : [])
 	};
-	for (var ix in i) {
-		if (i.hasOwnProperty(ix) && !obj.hasOwnProperty(ix) && !obj[ix]) {
-			obj[ix] = i[ix];
+	for (var ix in accs[i]) {
+		if (accs[i].hasOwnProperty(ix) && !obj.hasOwnProperty(ix) && !obj[ix]) {
+			obj[ix] = accs[i][ix];
 		}
 	}
 	return obj;
@@ -2896,6 +2933,35 @@ function runCommand(cmd, callback, output, via) { //via: steam, cmd
 				cardCheck(users[acc], f, true);
 			}
 			f();
+		} catch(err) {
+			op("An error occured: "+err);
+		}
+		if (callback) {
+			return callback();
+		} else {
+			return;
+		}
+	}
+	if (cmd[0] == "opt") {
+		var acc = cmd[1];
+		if (!acc || acc == "*" || acc == "all") {
+			acc = null;
+		}
+		var appaccs = {};
+		try {
+			if (!acc) {
+				appaccs = users;
+			} else {
+				if (!users[acc]) {
+					throw Error(acc+" currently isn't logged in");
+				}
+				appaccs[acc] = users[acc];
+			}
+			for (var i in appaccs) {
+				var o = appaccs[i].opts;
+				var os = JSON.stringify(o);
+				op(i+": "+os);
+			}
 		} catch(err) {
 			op("An error occured: "+err);
 		}
