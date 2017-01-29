@@ -409,7 +409,11 @@ function sidMatch(sid1, sid2, sid1_is_sid_obj) {
 	}
 	// console.log("postar", sid1, sid2);
 	for (var i in sid1) {
+		if (typeof i !== "number") {
+			continue;
+		}
 		var match1 = [sid1[i]];
+		// bot.debug("afkExt", sid1, sid1[i], typeof sid1[i]);
 		if (
 		// sid1[i] instanceof SteamID ||
 		sid1_is_sid_obj) {
@@ -944,7 +948,7 @@ function cardCheck(user, callback, keepLastCheck) {
 			user.badgeRowLengths[g_Page] = brlen; //*/
 			// bot.debug("cards", user.name+" has a badge row length of "+$_(".badge_row").length+" on badge page "+g_Page);
 			var infolines = $_(".progress_info_bold");
-			bot.debug("cards", infolines.length+" infolines on page "+g_Page+" on "+user.name);
+			// bot.debug("cards", infolines.length+" infolines on page "+g_Page+" on "+user.name);
 			var cardApps = [];
 			for (var i = 0; i < infolines.length; i++) {
 				// var match = $_(infolines[i]).text().(/(\d+) card drops? remaining/);
@@ -1478,6 +1482,7 @@ function login(name, pw, authcode, secret, games, online, callback, opts) {
 		}
 		// console.log("Checking redirection", user.redirectTo, sid);
 		// console.log("matching redirectTo");
+		// bot.debug("redirect", typeof user.redirectTo, user.redirectTo, msg);
 		if (user.redirectTo && !publicCommandExecuted && !privateCommandExecuted && msg.substr(0, 1) != "!" && user.steamID !== user.redirectTo && user.steamID.getSteamID64() !== user.redirectTo && !sidMatch(user.redirectTo, sid, (typeof user.redirectTo) !== "string")) {
 			user.getPersonas([sid], function(personas) {
 				
@@ -1498,9 +1503,11 @@ function login(name, pw, authcode, secret, games, online, callback, opts) {
 		}
 		var last = afkMsgsSent[user.name][sid64] || 0;
 		var lastMsg = msgsSent[user.name][sid64] || 0;
+		// bot.debug("afk", typeof user.afkMsg, user.afkMsg, last, lastMsg, msg);
 		if (msg.substr(0, 1) !== "!" && ((typeof user.afkMsg) == "string" || user.afkMsg instanceof Array) && (new Date()).getTime() - (settings["afkmsg_delay"] * 1000) > last && (new Date()).getTime() - (settings["afkmsg_suppress_time"] * 1000) > lastMsg) {
 			var f = false;
 			for (var i in users) {
+				// bot.debug("afkExt", typeof users[i].steamID, users[i].steamID, typeof sid, sid);
 				// console.log("matching logged in user");
 				if (sidMatch(users[i].steamID, sid, true)) {
 					f = true;
