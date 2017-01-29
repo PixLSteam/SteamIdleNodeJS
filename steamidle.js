@@ -400,8 +400,14 @@ function sidToSID64(sid) {
 
 function sidMatch(sid1, sid2, sid1_is_sid_obj) {
 	// console.log("prear", sid1, sid2, sid1_is_sid_obj);
+	// bot.debug("sidExt", typeof sid1, sid1, typeof sid2, sid2);
+	if (typeof sid2 == "string") {
+		sid2 = new SteamID(sid2);
+	}
 	var match = [sid2, sid2.getSteamID64(), sid2.getSteam2RenderedID(), sid2.getSteam2RenderedID(true), sid2.getSteam3RenderedID()];
+	// bot.debug("sidExt", "match:", match);
 	if (!sid1) {
+		bot.debug("sidExt", "no sid1");
 		return false;
 	}
 	if (!(sid1 instanceof Array)) {
@@ -409,11 +415,13 @@ function sidMatch(sid1, sid2, sid1_is_sid_obj) {
 	}
 	// console.log("postar", sid1, sid2);
 	for (var i in sid1) {
-		if (typeof i !== "number") {
+		// bot.debug("sidExt", "index stuff", typeof i, i, parseInt(i), typeof parseInt(i), "'"+i+"'");
+		if (isNaN(parseInt(i))) {
+			// bot.debug("sidExt", "skipped loop iteration for index ", i, typeof i);
 			continue;
 		}
 		var match1 = [sid1[i]];
-		// bot.debug("afkExt", sid1, sid1[i], typeof sid1[i]);
+		// bot.debug("sidExt", sid1, sid1[i], typeof sid1[i]);
 		if (
 		// sid1[i] instanceof SteamID ||
 		sid1_is_sid_obj) {
@@ -1455,6 +1463,7 @@ function login(name, pw, authcode, secret, games, online, callback, opts) {
 		if (sidMatch(wl, sid)) {
 			authorized = true;
 		}
+		// bot.debug("cmdAuth", typeof wl, wl, typeof sid, sid, authorized);
 		var publicCommandExecuted = false;
 		var r = checkForPublicCommand(sid, msg, user, name);
 		if (r) {
@@ -3089,7 +3098,7 @@ function runCommand(cmd, callback, output, via) { //via: steam, cmd
 		}
 	}
 	if ((["admin"]).includes(cmd[0])) {
-		op("\n ================== > All Admin Commands < ================= \n Here is a list with all Admin commands. | Info > - Use * to select all Acc's \n \n ~~~~~~~~~~~~~~~~~~ > Bot Control features < ~~~~~~~~~~~~~~~~~ \n 1. !idle <user or *> <ID/gp or \"your message\">: to start idling games. \n 2. !idle <user or *>: stop to stop idling. \n 3. !addfriend <user or *> <steamid64>: to add a friend with all or one Acc. \n 4. !newfriends <acc or *>: to see all new automatically accepted friends. \n 5. !newfriends clear <user or *>: to clean the list. \n 6. !redirect <user or *> <steam64id>: to redirect all msgs to an Acc. \n 7. !msg <user or *> <steam64id> <msg>: to send a msg to other users. \n 8. !wallet <user or *>: to see how much money you have. \n 9. !afk <user or *> <on or off>: to automatically send an afk msg. \n 10. !uimode [<user or *>] [<phone, web, big_picture (bp) or desktop>]: to change the ui mode. \n 11. !name [<user or *>] <name>: to change the name. \n 12. !help: to see all public commands. \n ===================================================");
+		op("\n ================== > All Admin Commands < ================= \n Here is a list with all Admin commands. | Info > - Use * to select all Accs \n \n ~~~~~~~~~~~~~~~~~~ > Bot Control features < ~~~~~~~~~~~~~~~~~ \n 1. !idle <user or *> <ID/gp or \"your message\">: to start idling games. \n 2. !idle <user or *>: stop to stop idling. \n 3. !addfriend <user or *> <steamid64>: to add a friend with all or one Acc. \n 4. !newfriends <acc or *>: to see all new automatically accepted friends. \n 5. !newfriends clear <user or *>: to clean the list. \n 6. !redirect <user or *> <steam64id>: to redirect all msgs to an Acc. \n 7. !msg <user or *> <steam64id> <msg>: to send a msg to other users. \n 8. !wallet <user or *>: to see how much money you have. \n 9. !afk <user or *> <on or off>: to automatically send an afk msg. \n 10. !uimode [<user or *>] [<phone, web, big_picture (bp) or desktop>]: to change the ui mode. \n 11. !name [<user or *>] <name>: to change the name. \n 12. !help: to see all public commands. \n ===================================================");
 		if (callback) {
 			return callback();
 		} else {
@@ -3097,7 +3106,7 @@ function runCommand(cmd, callback, output, via) { //via: steam, cmd
 		}
 	}
 	if ((["help", "ahelp"]).includes(cmd[0])) {
-		op("add <user>: adds a user to the database");
+		op("add <user>: adds a user to the database [CURRENTLY NOT SUPPORTED]");
 		op("");
 		op("login <user>: login");
 		op("");
@@ -3105,7 +3114,7 @@ function runCommand(cmd, callback, output, via) { //via: steam, cmd
 		op("");
 		op("idle [<user>] [<games>]: idle the specified games with the specified user");
 		op("~<user> is the name of the account you want to idle on");
-		op("no user, '*' and 'all' will result in all logged in user idling");
+		op("no user, '*' and 'all' will result in all logged in users idling");
 		op("~<games> is either a list of game ids (separated with ','),\na game preset or a custom game");
 		op("");
 		op("addfriend [<user>] <newfriend>: add <newfriend> to your friend list");
