@@ -936,9 +936,9 @@ function cardCheck(user, callback, keepLastCheck) {
 			if (!user.badgePageHashes) {
 				user.badgePageHashes = {};
 			}
-			if (md5) {
-				user.badgePageHashes[g_Page] = md5(body);
-				bot.debug("cards", "Saved md5 hash "+user.badgePageHashes[g_Page]+" for badge page "+g_Page+" on "+user.name+", found "+$_(".badge_row").length+" .badge_row elements");
+			if (md5) { //disabled due to steam sending different pages no matter how many requests we make :/
+				// user.badgePageHashes[g_Page] = md5(body);
+				// bot.debug("cards", "Saved md5 hash "+user.badgePageHashes[g_Page]+" for badge page "+g_Page+" on "+user.name+", found "+$_(".badge_row").length+" .badge_row elements");
 			}
 			/*
 			var brlen = $_(".badge_row").length;
