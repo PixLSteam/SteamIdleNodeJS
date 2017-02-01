@@ -1395,7 +1395,12 @@ function login(name, pw, authcode, secret, games, online, callback, opts) {
 			if (callback) {
 				callback();
 			}
-			user.setOption("enablePicsCache", true);
+			try {
+				user.setOption("enablePicsCache", true);
+			} catch(err) {
+				//delay?
+				console.log("Error setting enablePicsCache option, expect some things to not work properly");
+			}
 		}
 	});
 	
@@ -3299,7 +3304,7 @@ function checkForPublicCommand(sid, msg, user, name) {
 		var tmsg = "It's currently "+(curDate).toTimeString();
 		var stm = false;
 		var stmsgs = settings["time_special"];
-		for (var i in stmsgs) {
+		for (var i = 0; i < stmsgs.length; i++) {
 			if (!(stmsgs[i] instanceof Object)) {
 				continue;
 			}
@@ -3309,9 +3314,11 @@ function checkForPublicCommand(sid, msg, user, name) {
 			if ((!hs || hs.includes(curDate.getHours())) && (!ms || ms.includes(curDate.getMinutes()))) {
 				stm = true;
 				tmsg = tmsg + " - " + smsg;
+				// tmsg += " ["+i+"]";
 				break;
 			}
 		}
+		// tmsg += " - " + JSON.stringify(stmsgs);
 		user.chatMessage(sid, tmsg);
 		return true;
 	}
