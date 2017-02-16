@@ -38,10 +38,34 @@ timing.printDetails = function printDetails() {
 timing.start();
 
 var SteamUser = require("steam-user");timing.step("steam-user loaded");
+var Steam = SteamUser.Steam;
 var SteamTotp = require("steam-totp");timing.step("steam-totp loaded");
 
 var SteamCommunity = require("steamcommunity");timing.step("steamcommunity loaded");
 var community = new SteamCommunity();
+
+//will probably make them optional
+var Cheerio;
+var request;
+var md5;
+try {
+	Cheerio = require("cheerio");timing.step("cheerio loaded");
+} catch(err) {
+	Cheerio = null;
+	console.log("Couldn't load cheerio");
+}
+try {
+	request = require("request");timing.step("request loaded");
+} catch(err) {
+	request = null;
+	console.log("Couldn't load request");
+}
+try {
+	md5 = require("js-md5");timing.step("js-md5 loaded");
+} catch(err) {
+	md5 = null;
+	console.log("Couldn't load js-md5");
+}
 
 var SteamID = require("steamid");timing.step("steamid loaded"); //already dependency, so doesn't make a difference for the admin
 
@@ -49,6 +73,38 @@ var prompt = require("prompt");timing.step("prompt loaded");
 var fs = require("fs");timing.step("fs loaded");
 
 prompt.start();
+
+SteamUser.prototype.initialised = function initialised() {
+	return this.loggedIn;
+}
+
+SteamUser.prototype.idlingCards = function idlingCards() {
+	return this.curIdling && this.curIdling.indexOf(":cards") > -1;
+}
+
+SteamUser.prototype.getOpt = function getOpt(opt) {
+	if (this.opts) {
+		if (([null, undefined]).indexOf(this.opts[opt]) <= -1) {
+			return this.opts[opt];
+		}
+	}
+	if (([null, undefined]).indexOf(settings[opt]) <= -1) {
+		return settings[opt];
+	}
+	return null;
+};
+SteamUser.prototype.getOptComb = function getOptComb(opt) {
+	var cur = [];
+	if (this.opts) {
+		if (this.opts[opt] instanceof Array) {
+			cur = cur.concat(this.opts[opt]);
+		}
+	}
+	if (settings[opt] instanceof Array) {
+		cur = cur.concat(settings[opt]);
+	}
+	return cur;
+}
 
 SteamUser.prototype.getPersonaStateFlags = function() {
 	if (this.personaStateFlags && parseInt(this.personaStateFlags)) {
@@ -66,14 +122,183 @@ SteamUser.prototype.setPersona = function(state, name) {
 	});
 };
 
+Array.prototype.spliceN = function() {
+	var sp = this.concat();
+	sp.splice.apply(sp, arguments);
+	// Array.prototype.splice.apply(sp, arguments);
+	return sp;
+}
+
+function empty(obj) {
+	for (var i in obj) {
+		if (obj.hasOwnProperty(i)) {
+			return true;
+		}
+	}
+	return false;
+}
+
+function clone(obj) {
+	var r = {};
+	for (var i in obj) {
+		if (obj.hasOwnProperty(i)) {
+			r[i] = obj[i];
+		}
+	}
+	return r;
+}
+
+var tickHandle;
+
 var users = {};
 
 var alarms = {};
 
 var bot = {};
+global.bot = bot;
+bot.users = users;
+bot.alarms = alarms;
 bot.log = function log() {
 	var ar = settings.display_time ? [(new Date()).toTimeString()] : [];
 	console.log.apply(console, ar.concat(Array.prototype.slice.call(arguments)));
+}
+bot.events = {};
+bot.events.listeners = {};
+bot.events.addListener = function addListener(evt, id, func) {
+	bot.events.listeners[evt] = bot.events.listeners[evt] || {};
+	var obj = {};
+	obj.func = func;
+	obj.evt = evt;
+	obj.id = id;
+	bot.events.listeners[evt][id] = obj;
+}
+bot.events.removeAllListeners = function removeAllListeners(evt) {
+	if (evt) {
+		// bot.events.listeners[evt] = {};
+		delete bot.events.listeners[evt];
+	} else {
+		bot.events.listeners = {};
+	}
+}
+bot.events.removeListener = function removeListener(evt, id) {
+	bot.events.listeners[evt] = bot.events.listeners[evt] || {};
+	delete bot.events.listeners[evt][id];
+}
+bot.events.getEvents = function getEvents() {
+	var ar = [];
+	for (var i in bot.events.listeners) {
+		if (!empty(bot.events.listeners[i])) {
+			ar.push(i);
+		}
+	}
+	return ar;
+}
+bot.events.getListeners = function getListeners(evt) {
+	return clone(bot.events.listeners[evt] || {});
+}
+bot.events.emit = function emit(evt, args) {
+	var l = bot.events.getListeners(evt);
+	for (var i in l) {
+		var obj = l[i];
+		var f = obj.func;
+		if (typeof f === "function") {
+			f.apply(null, args || []);
+		}
+	}
+}
+bot.commands = {};
+bot.commands.list = {};
+bot.commands.addCommand = function addCommand(cmd, func) {
+	var obj = {};
+	obj.func = func;
+	obj.cmd = cmd;
+	bot.commands.list[cmd] = obj;
+}
+bot.commands.removeCommand = function removeCommand(cmd) {
+	delete bot.commands.list[cmd];
+}
+bot.commands.getCommands = function getCommands() {
+	return clone(bot.commands.list);
+}
+
+bot.getSettings = function getSettings() {
+	return clone(settings);
+}
+bot.getSetting = function getSetting(set) {
+	var v = settings[set];
+	if (typeof v == "object") {
+		if (v == null) {
+			return null;
+		} else {
+			return clone(v);
+		}
+	} else if (typeof v == "string") {
+		return v;
+	} else if (v instanceof Array) {
+		return v.concat();
+	} else if (typeof v == "number") {
+		return v;
+	}
+	return v;
+}
+
+bot.loadExtensions = function loadExtensions() {
+	
+}
+bot.loadExtension = function loadExtension(ext) {
+	var files = [
+		"%(ext)/main.js",
+		"%(ext)/init.js",
+		"%(ext)/start.js",
+		"%(ext)/module.js",
+		"%(ext).js",
+		"%(ext)",
+		""
+	];
+	var file;
+	for (var i = 0; i < files.length; i++) {
+		var f = files[i].replace("%(ext)", ext);
+		console.log("file: "+f, fs.existsSync(f));
+		if (f.length > 0 && fs.existsSync(f)) {
+			file = f;
+			break;
+		}
+	}
+	if (file) {
+		var fstr = file;
+		if (fstr.substr(0, 1) !== "/") {
+			fstr = "./"+fstr;
+		}
+		var kek = require(fstr);
+		console.log(kek);
+		if (typeof kek == "function") {
+			kek();
+		} else if (typeof kek == "object" && kek) {
+			if (kek.init && typeof kek.init == "function") {
+				kek.init();
+			} else {
+				//--
+			}
+		} else {
+			
+		}
+	} else {
+		console.log("No file found for ext "+ext);
+	}
+}
+
+bot.debugModes = [];
+bot.getDebugModes = function getDebugModes() {
+	return bot.debugModes.concat();
+}
+bot.debug = function debug(mode) {
+	// op = op || getDefaultOutput();
+	var op = getDefaultOutput();
+	if (bot.getDebugModes().includes("*") || bot.getDebugModes().includes(mode)) {
+		// op(msg);
+		var c = 0;
+		op.apply(null, ["DEBUG|"+mode].concat(Array.prototype.slice.call(arguments).filter(function(x) {return c++ > 0;})));
+	}
 }
 
 function reverseString(str) {
@@ -175,8 +400,14 @@ function sidToSID64(sid) {
 
 function sidMatch(sid1, sid2, sid1_is_sid_obj) {
 	// console.log("prear", sid1, sid2, sid1_is_sid_obj);
+	// bot.debug("sidExt", typeof sid1, sid1, typeof sid2, sid2);
+	if (typeof sid2 == "string") {
+		sid2 = new SteamID(sid2);
+	}
 	var match = [sid2, sid2.getSteamID64(), sid2.getSteam2RenderedID(), sid2.getSteam2RenderedID(true), sid2.getSteam3RenderedID()];
+	// bot.debug("sidExt", "match:", match);
 	if (!sid1) {
+		bot.debug("sidExt", "no sid1");
 		return false;
 	}
 	if (!(sid1 instanceof Array)) {
@@ -184,7 +415,13 @@ function sidMatch(sid1, sid2, sid1_is_sid_obj) {
 	}
 	// console.log("postar", sid1, sid2);
 	for (var i in sid1) {
+		// bot.debug("sidExt", "index stuff", typeof i, i, parseInt(i), typeof parseInt(i), "'"+i+"'");
+		if (isNaN(parseInt(i))) {
+			// bot.debug("sidExt", "skipped loop iteration for index ", i, typeof i);
+			continue;
+		}
 		var match1 = [sid1[i]];
+		// bot.debug("sidExt", sid1, sid1[i], typeof sid1[i]);
 		if (
 		// sid1[i] instanceof SteamID ||
 		sid1_is_sid_obj) {
@@ -249,11 +486,23 @@ function formatCurrency(bal, cur) {
 		if (cc[curc] instanceof Object) {
 			dp = cc[curc]["dp"] || 0;
 		}
-		bal = Math.floor(bal * Math.pow(10, dp)) / Math.pow(10, dp);
+		var smart = true;
+		if (!smart) {
+			bal = Math.floor(bal * Math.pow(10, dp)) / Math.pow(10, dp);
+		}
+		if (smart && dp <= 0) {
+			bal = Math.floor(bal);
+		}
 		var balstr = bal + "";
 		var intlen = (""+Math.floor(bal)).length;
 		if (Math.floor(bal) !== bal) {
 			slen = intlen + 1 + dp;
+			if (smart) {
+				if (slen < (bal+"").length) {
+					bal = Math.floor(bal * Math.pow(10, dp)) / Math.pow(10, dp);
+					balstr = bal + "";
+				}
+			}
 			while (balstr.length < slen) {
 				balstr = balstr + "0";
 			}
@@ -280,8 +529,27 @@ function processStr(str) {
 	return g;
 }
 
-function processGame(game) {
+function processGame(game, user) {
 	var g = game;
+	var re = /^\d+$/;
+	var g2 = g;
+	if (typeof g2 === "string" && g2.match(re)) {
+		g2 = parseInt(g2);
+	}
+	// console.log(user.name, typeof g2, g2, JSON.stringify(user.getOptComb("games_blacklist")), user.getOptComb("games_blacklist").indexOf(g2));
+	if (user && user.getOptComb("games_blacklist").indexOf(g2) >= 0) {
+		return null;
+	}
+	if (typeof g2 === "string" && g2 === ":cards" && user) {
+		var cg = user.currentCardApps || [];
+		var r = [];
+		for (var i = 0; i < cg.length; i++) {
+			if (user.getOptComb("games_blacklist").indexOf(g2) < 0) {
+				r.push(cg[i]);
+			}
+		}
+		return r;
+	}
 	return processStr(g);
 	// if ((typeof g) == "string" && g.substr(0, 1) == ":") { //clock
 		// g = g.substr(1);
@@ -338,19 +606,28 @@ function processCustomMessage(msg) {
 	// return m;
 }
 
-function processGamesArray(games) {
+function processGamesArray(games, user) {
 	if ((typeof games) == "string" || (typeof games) == "number") {
-		return processGame(games);
+		return processGame(games, user);
 	}
 	var r = [];
 	for (var i = 0; i < games.length; i++) {
-		r.push(processGame(games[i]));
+		var g = processGame(games[i], user);
+		if (g instanceof Array) {
+			r = r.concat(g);
+		} else {
+			r.push(g);
+		}
+	}
+	r = r.filter(function(x){return ([null, undefined]).indexOf(x) < 0;});
+	if (user && (r.length > user.getOpt("maxGames"))) {
+		r.splice(user.getOpt("maxGames"));
 	}
 	return r;
 }
 
 function idle(user, games) {
-	user.gamesPlayed(processGamesArray(games));
+	user.gamesPlayed(processGamesArray(games, user));
 }
 
 function checkFriends(user) {
@@ -376,6 +653,31 @@ var friendRequests = {};
 var aFriendRequests = {};
 
 var afkMsgsSent = {};
+var msgsSent = {};
+
+function updateFriendFile() {
+	try {
+		// fs.accessSync(settings["friendSaveFile"], fs.constants.W_OK);
+		var str = JSON.stringify(aFriendRequests);
+		fs.writeFileSync(settings["friendSaveFile"], str);
+	} catch(err) {
+		//
+	}
+}
+
+function loadFriendFile() {
+	try {
+		fs.accessSync(settings["friendSaveFile"], fs.constants.R_OK);
+		var data = fs.readFileSync(settings["friendSaveFile"]);
+		var d = JSON.parse(data);
+		if (!(d instanceof Object)) {
+			throw Error("JSON not an object");
+		}
+		aFriendRequests = d;
+	} catch(err) {
+		//
+	}
+}
 
 function checkFriendRequest(user, fr) {
 	var autoaccept_min_lvl = (user.opts || {}).autoaccept_min_lvl;
@@ -415,6 +717,8 @@ function checkFriendRequest(user, fr) {
 				aFriendRequests[user.name][fr] = "~";
 			}
 		}
+		// addToFriendFile(user.name, fr, aFriendRequests[user.name][fr]);
+		updateFriendFile();
 	});
 }
 
@@ -435,6 +739,9 @@ function checkForFriendRequests(user) {
 			if (!friendRequests[user.name][i]) {
 				friendRequests[user.name][i] = true;
 				checkFriendRequest(user, i);
+				if (settings["singleFriendAccept"]) {
+					return true;
+				}
 			}
 		}
 	}
@@ -463,6 +770,397 @@ function checkNewFriends(user, op) {
 		var lnk = ((clm == 1 || (clm == 2 && state == "+")) ? "steam://friends/message/" : "http://steamcommunity.com/profiles/")+frid;
 		op(name+": "+lnk+" "+msg);
 	}
+}
+
+function cards(user, op) {
+	if (!user.cardCheckRunning) {
+		cardCheck(user, function(user, cardApps) {
+			for (var i = 0; i < cardApps.length; i++) {
+				var str = JSON.stringify(cardApps[i]);
+				op(user.name+": "+str);
+			}
+		}, true);
+	}
+}
+
+function checkCards(user, op) {
+	op = op || function(){};
+	if (!Cheerio || !request) {
+		bot.debug("cards", "cheerio or request not loaded");
+		return;
+	}
+	if (user.cardCheckRunning) {
+		bot.debug("cardsExt", "already a card check running on "+user.name);
+		return;
+	}
+	if (!user.idlingCards()) {
+		bot.debug("cardsExt", user.name+" isn't idling cards");
+		return;
+	}
+	var lastCheck = user.lastCheck || 0;
+	var lastDiff = (+new Date) - lastCheck;
+	var delay = user.newItems ? user.getOpt("cardCheckMinDelay") : (user.getOpt("cardCheckDelay") || settings["cardCheckDelay"] || (5 * 60));
+	if (lastDiff < delay * 1000) {
+		bot.debug("cardsExt", "still in delay for "+user.name);
+		return;
+	}
+	var f = function(u, cardApps) {
+		bot.debug("cards", "received card apps on "+user.name);
+		user.newItems = false;
+		if (cardApps.length <= 0) {
+			user.currentCardApps = [];
+			user.allCardApps = cardApps;
+			// if (u.badgePageHashes) {
+				// bot.debug("cards", "Badge page hash object found for "+u.name);//, u.badgePageHashes);
+			// } else {
+				// bot.debug("cards", "No badge page hash found for "+u.name);
+			// }
+			// bot.debug("cards", u.firstGameOnPage);
+			if (u.firstGameOnPage && user.firstGameOnPage[u.cardPage - 1] && user.firstGameOnPage[u.cardPage - 1] === user.firstGameOnPage[u.cardPage]) {
+			// if (u.badgePageHashes && user.badgePageHashes[u.cardPage - 1] && user.badgePageHashes[u.cardPage - 1] === user.badgePageHashes[u.cardPage]) {
+				// bot.debug("cards", "current page ("+u.cardPage+") has the same hash as page "+(u.cardPage-1)+", jumping back to page 1");
+				bot.debug("cards", "current page ("+u.cardPage+") has the same first app as page "+(u.cardPage-1)+", jumping back to page 1");
+				u.cardPage = 1;
+				u.firstGameOnPage = {};
+			} else {
+				bot.debug("cards", "current page ("+u.cardPage+") empty, jumping to page "+(u.cardPage+1));
+				u.cardPage++;
+			}
+			return;
+		}
+		var cardIdleReachCardTimeFirst = u.getOpt("cardIdleReachCardTimeFirst");
+		var cardIdleMultiHours = u.getOpt("cardIdleMultiHours");
+		var ca = cardApps.concat();
+		//sort here
+		if (true) {
+			while (true) {
+				var change = false;
+				for (var i = 0; i < ca.length - 1; i++) {
+					var pre = ca[i];
+					var nxt = ca[i + 1];
+					if (cardIdleReachCardTimeFirst ? (pre["playtime"] > nxt["playtime"]) : (pre["playime"] < nxt["playtime"])) {
+						ca[i] = nxt;
+						ca[i + 1] = pre;
+						change = true;
+					}
+				}
+				if (!change) {
+					break;
+				}
+			}
+		}
+		if (ca.length > u.getOpt("maxGames")) {
+			ca.splice(u.getOpt("maxGames"), Infinity);
+		}
+		if (!cardIdleReachCardTimeFirst || !cardIdleMultiHours) {
+			ca.splice(1, Infinity);
+		}
+		var cas;
+		if (true) {
+			cas = [];
+			for (var i = 0; i < ca.length; i++) {
+				cas.push(ca[i].appid);
+			}
+		} else {
+			cas = ca.map(function(x){return x.appid});
+		}
+		bot.debug("cards", "card apps to idle for "+user.name+": ", cas);
+		user.currentCardApps = cas;
+		user.allCardApps = cardApps;
+	};
+	cardCheck(user, f);
+}
+
+function cardCheck(user, callback, keepLastCheck) {
+	if (!Cheerio || !request) {
+		return false;
+	}
+	var g_Jar = request.jar();
+	var g_Page = user.cardPage;
+	if (!user.appOwnershipCached) {
+		bot.debug("cards", user.name+" not ready for card idling, app ownership not cached yet");
+		return false;
+	}
+	if (!user.cookies && !bot.getSetting("cardsWebLogOnEveryTime")) {
+		bot.debug("cards", user.name+" not ready for card idling, no cookies found");
+		return false;
+	}
+	if (!user.licenses) {
+		bot.debug("cards", user.name+" not ready for card idling, no licenses found");
+		return false;
+	}
+	if (!user.picsCache || !user.picsCache.packages) {
+		bot.debug("cards", user.name+" not ready for card idling, no picsCache found");
+		return false;
+	}
+	user.cardCheckRunning = true;
+	if (!keepLastCheck) {
+		user.lastCheck = +new Date;
+	}
+	var f = function(sessionID, cookies) {
+		cookies.forEach(function(cookie) {
+			g_Jar.setCookie(cookie, "https://steamcommunity.com");
+		});
+		var rq = request.defaults({"jar": g_Jar});
+		if (!keepLastCheck) {
+			user.lastCheck = +new Date;
+		}
+		bot.debug("cards", "now sending request for badge page "+g_Page+" on acc "+user.name);
+		rq("https://steamcommunity.com/my/badges/?p="+g_Page, function(err, response, body) {
+			user.cardCheckRunning = false;
+			if (err || response.statusCode != 200) {
+				// op("Couldn't request badge page: "+(err||"HTTP error "+response.statusCode));
+				if (!keepLastCheck) {
+					user.lastCheck = (+new Date) - user.getOpt("cardCheckDelay") * 1000 + user.getOpt("cardCheckFailDelay") * 1000; //could also do this with the param tho
+				}
+				bot.debug("cards", "badge request for "+user.name+" failed, returned "+(err ? "error" : "status code " + response.statusCode));
+				return false;
+			}
+			if (bot.writebadgepage) {
+				try {
+					var fn = "./badges_"+user.name+"_"+processStr(":%Y-%m-%d_%H-%M-%S")+".html";
+					fs.writeFileSync(fn, body);
+					bot.debug("cards", "successfully wrote the badge page for "+user.name+" to a file");
+				} catch(err) {
+					bot.debug("cards", "error writing the badge page for "+user.name+" to a file");
+				}
+			}
+			bot.debug("cards", "badge request for "+user.name+" arrived, now parsing...");
+			if (!keepLastCheck) {
+				user.lastCheck = +new Date;
+			}
+			var ownedPackages = user.licenses.map(function(license) {
+				var pkg = user.picsCache.packages[license.package_id].packageinfo;
+				pkg.time_created = license.time_created;
+				pkg.payment_method = license.payment_method;
+				return pkg;
+			}).filter(function(pkg) {
+				return !(pkg.extended && pkg.extended.freeweekend);
+			});
+			var $_ = Cheerio.load(body);
+			if (!user.firstGameOnPage) {
+				user.firstGameOnPage = {};
+			}
+			if (!user.badgePageHashes) {
+				user.badgePageHashes = {};
+			}
+			if (md5) { //disabled due to steam sending different pages no matter how many requests we make :/
+				// user.badgePageHashes[g_Page] = md5(body);
+				// bot.debug("cards", "Saved md5 hash "+user.badgePageHashes[g_Page]+" for badge page "+g_Page+" on "+user.name+", found "+$_(".badge_row").length+" .badge_row elements");
+			}
+			/*
+			var brlen = $_(".badge_row").length;
+			if (!user.badgeRowLengths) {
+				user.badgeRowLengths = {};
+			}
+			user.badgeRowLengths[g_Page] = brlen; //*/
+			// bot.debug("cards", user.name+" has a badge row length of "+$_(".badge_row").length+" on badge page "+g_Page);
+			var infolines = $_(".progress_info_bold");
+			// bot.debug("cards", infolines.length+" infolines on page "+g_Page+" on "+user.name);
+			var cardApps = [];
+			for (var i = 0; i < infolines.length; i++) {
+				// var match = $_(infolines[i]).text().(/(\d+) card drops? remaining/);
+				var match = $_(infolines[i]).text().match(/(\d+)/);
+				var br = $_(infolines[i]).closest('.badge_row');
+				var ael = br.find('.badge_title_playgame a');
+				var href = ael.attr('href');
+				var bro = br.find(".badge_row_overlay");
+				var broh = bro.attr("href");
+				
+				var idm = href ? href.match(/steam:\/\/run\/(\d+)/) : null;
+				var appid = (idm ? idm[1] : href);
+				
+				// bot.debug("cards", ael.html(), href, idm, appid, parseInt(appid), user.picsCache.apps.hasOwnProperty(appid), user.firstGameOnPage[g_Page]);
+				// var appid2 = broh.match(/^https?:\/\/(?:www\.)?steamcommunity\.com\/(?:.*)\/gamecards\/(?:\d+)\/?$/);
+				var appid2 = broh.match(/\/gamecards\/(\d+)\/?$/);
+				appid2 = appid2 ? appid2[1] : null;
+				if (appid2 && parseInt(appid2) && user.picsCache.apps.hasOwnProperty(appid2) && !user.firstGameOnPage[g_Page]) {
+					user.firstGameOnPage[g_Page] = parseInt(appid2);
+					bot.debug("cards", "set first game on page "+g_Page+" for "+user.name+" to "+appid2);
+				}
+				// for (var i in ael) {
+					// op(i+" "+typeof ael[i]);
+				// }
+				// op(""+br.html());
+				// op(""+ael.html());
+				// op(""+ael.attr("href"));
+				// return;
+				// continue;
+				// op(typeof ael + ael);
+				// op(typeof href + href);
+				if (!match || !href) {
+					continue;
+				}
+				// var overlay = br.find(".badge_row_overlay");
+				// if (!overlay) {
+					// continue;
+				// }
+				
+				
+				
+				//check if app is owned, idm
+				if(!user.picsCache.apps.hasOwnProperty(appid)) {
+					continue;
+				}
+				
+				var newlyPurchased = false;
+				var lastPkg;
+				// Find the package(s) in which we own this app
+				ownedPackages.filter(function(pkg) {
+					return pkg.appids && pkg.appids.indexOf(appid) != -1;
+				}).forEach(function(pkg) {
+					var timeCreatedAgo = Math.floor(Date.now() / 1000) - pkg.time_created;
+					if(timeCreatedAgo < (60 * 60 * 24 * 14) && [Steam.EPaymentMethod.ActivationCode, Steam.EPaymentMethod.GuestPass, Steam.EPaymentMethod.Complimentary].indexOf(pkg.payment_method) == -1) {
+						newlyPurchased = true;
+					}
+					lastPkg = pkg;
+				});
+				
+				var playtime = br.find(".badge_title_stats").html().match(/(\d+\.\d+)/);
+				if (!playtime) {
+					playtime = 0.0;
+				} else {
+					playtime = parseFloat(playtime[1], 10);
+					if (isNaN(playtime)) {
+						playtime = 0.0;
+					}
+				}
+				
+				var dropsLeft = 0;
+				
+				if (match && match[1] && parseInt(match[1])) {
+					dropsLeft = parseInt(match[1]);
+					// op(match[1]+" cards in "+appid+" with a playtime of "+(playtime)+"h");
+				}
+				var gameObj = {};
+				gameObj.appid = parseInt(appid);
+				gameObj.dropsLeft = parseInt(dropsLeft);
+				gameObj.playtime = parseFloat(playtime);
+				gameObj.time_created = (lastPkg ? lastPkg.time_created : 0);
+				gameObj.newlyPurchased = newlyPurchased;
+				var onBlacklist = user.getOptComb("games_blacklist").indexOf(gameObj.appid) > -1;
+				if (onBlacklist) {
+					//ignore message?
+				}
+				if (dropsLeft > 0 && !onBlacklist) {
+					cardApps.push(gameObj);
+				}
+			}
+			bot.debug("cards", "finished parsing badge page for "+user.name+", found "+cardApps.length+" game"+(cardApps.length == 1 ? "" : "s"));
+			if (callback) {
+				callback(user, cardApps);
+			}
+		});
+	}
+	if (bot.getSetting("cardsWebLogOnEveryTime")) {
+		user.once("webSession", f);
+		user.webLogOn();
+	} else {
+		f(user.sessionID, user.cookies);
+	}
+}
+
+function checkCardsCmd(user, op) {
+	if (true) { //for testing
+		cards(user, op);
+		return;
+	}
+	op = op || function(){};
+	var g_Jar = request.jar();
+	var g_Page = 1;
+	if (!user.cookies) {
+		return;
+	}
+	user.cookies.forEach(function(cookie) {
+		g_Jar.setCookie(cookie, "https://steamcommunity.com");
+	});
+	var rq = request.defaults({"jar": g_Jar});
+	rq("https://steamcommunity.com/my/badges/?p="+g_Page, function(err, response, body) {
+		if (err || response.statusCode != 200) {
+			op("Couldn't request badge page: "+(err||"HTTP error "+response.statusCode));
+			return;
+		}
+		try {
+			var file = "/var/www/html/badges_"+user.name+".html";
+			// fs.writeFileSync(file, body);
+			// op("Successfully wrote the body to "+file);
+		} catch(err) {
+			// op("An error occured while writing to the file");
+			return;
+		}
+		var ownedPackages = user.licenses.map(function(license) {
+			var pkg = user.picsCache.packages[license.package_id].packageinfo;
+			pkg.time_created = license.time_created;
+			pkg.payment_method = license.payment_method;
+			return pkg;
+		}).filter(function(pkg) {
+			return !(pkg.extended && pkg.extended.freeweekend);
+		});
+		var $_ = Cheerio.load(body);
+		var infolines = $_(".progress_info_bold");
+		for (var i = 0; i < infolines.length; i++) {
+			// var match = $_(infolines[i]).text().(/(\d+) card drops? remaining/);
+			var match = $_(infolines[i]).text().match(/(\d+)/);
+			var br = $_(infolines[i]).closest('.badge_row');
+			var ael = br.find('.badge_title_playgame a');
+			var href = ael.attr('href');
+			// for (var i in ael) {
+				// op(i+" "+typeof ael[i]);
+			// }
+			// op(""+br.html());
+			// op(""+ael.html());
+			// op(""+ael.attr("href"));
+			// return;
+			// continue;
+			// op(typeof ael + ael);
+			// op(typeof href + href);
+			if (!match || !href) {
+				continue;
+			}
+			// var overlay = br.find(".badge_row_overlay");
+			// if (!overlay) {
+				// continue;
+			// }
+			
+			var idm = href ? href.match(/steam:\/\/run\/(\d+)/) : null;
+			var appid = (idm ? idm[1] : href);
+			
+			//check if app is owned, idm
+			if(!user.picsCache.apps.hasOwnProperty(appid)) {
+				continue;
+			}
+			
+			var newlyPurchased = false;
+			var lastPkg;
+			// Find the package(s) in which we own this app
+			ownedPackages.filter(function(pkg) {
+				return pkg.appids && pkg.appids.indexOf(appid) != -1;
+			}).forEach(function(pkg) {
+				var timeCreatedAgo = Math.floor(Date.now() / 1000) - pkg.time_created;
+				if(timeCreatedAgo < (60 * 60 * 24 * 14) && [Steam.EPaymentMethod.ActivationCode, Steam.EPaymentMethod.GuestPass, Steam.EPaymentMethod.Complimentary].indexOf(pkg.payment_method) == -1) {
+					newlyPurchased = true;
+				}
+				lastPkg = pkg;
+			});
+			
+			var playtime = br.find(".badge_title_stats").html().match(/(\d+\.\d+)/);
+			if (!playtime) {
+				playtime = 0.0;
+			} else {
+				playtime = parseFloat(playtime[1], 10);
+				if (isNaN(playtime)) {
+					playtime = 0.0;
+				}
+			}
+			
+			var dropsLeft = 0;
+			
+			if (match && match[1] && parseInt(match[1])) {
+				dropsLeft = parseInt(match[1]);
+				op(match[1]+" cards in "+appid+" with a playtime of "+(playtime)+"h");
+			}
+		}
+	});
 }
 
 function parsePeriod(period) {
@@ -604,11 +1302,23 @@ function updateOnlineStatus(name) {
 }
 
 function tick() {
+	var frLevelChecked = false;
 	for (var i in users) {
+		if (!users[i].initialised()) {
+			continue;
+		}
+		if (users[i].idlingCards()) {
+			checkCards(users[i]); //only check if currently idling cards	
+		}
 		idle(users[i], users[i].curIdling);
 		// users[i].setPersona(users[i].isOnline && SteamUser.Steam.EPersonaState.Online || SteamUser.Steam.EPersonaState.Offline);
 		updateOnlineStatus(i);
-		checkForFriendRequests(users[i]);
+		if (!settings["singleFriendAccept"] || !frLevelChecked) {
+			var r = checkForFriendRequests(users[i]);
+			if (r && settings["singleFriendAccept"]) {
+				frLevelChecked = true;
+			}
+		}
 	}
 	checkAlarms();
 }
@@ -625,9 +1335,22 @@ function login(name, pw, authcode, secret, games, online, callback, opts) {
 		ac = "";
 	}
 	ac = SteamTotp.getAuthCode("");
+	
+	user.cardPage = 1;
+	
+	user.loggedIn = false;
 	 
 	user.on("error", function(err) {
-		console.log("An error occured..."); 
+		if (err == "Error: InvalidPassword") {
+			console.log("Invalid password entered for "+name);
+			user.logOff();
+			if (callback) {
+				callback();
+			}
+		} else {
+			console.log("An error occured...");
+			console.log(err);
+		}
 	});
 	 
 	user.on("disconnected", function() {
@@ -648,24 +1371,35 @@ function login(name, pw, authcode, secret, games, online, callback, opts) {
 	
 	var loggedOn = function() {
 		user.name = name;
-		user.opts = opts;
 		if (user.lastUIMode) {
 			user.setUIMode(user.lastUIMode);
 		}
 		updateOnlineStatus(name);
 		user.curIdling = user.curIdling || games || [221410];
 		idle(user, user.curIdling);
+		user.loggedIn = true;
 	}
 	 
-	user.on("webSession", function() {
+	user.on("webSession", function(sessionID, cookies) {
+		if (!bot.getSetting("cardsWebLogOnEveryTime")) {
+			user.sessionID = sessionID;
+			user.cookies = cookies;
+		}
 		if (firstLoginTrigger) {
 			console.log("Logged in!");
 			users[name] = user;
+			user.opts = opts;
 			user.isOnline = toBool(online);
 			loggedOn();
 			firstLoginTrigger = false;
 			if (callback) {
 				callback();
+			}
+			try {
+				user.setOption("enablePicsCache", true);
+			} catch(err) {
+				//delay?
+				console.log("Error setting enablePicsCache option, expect some things to not work properly");
 			}
 		}
 	});
@@ -681,12 +1415,22 @@ function login(name, pw, authcode, secret, games, online, callback, opts) {
 		killPrepared = true;
 	}
 	
+	user.once("appOwnershipCached", function() {
+		// console.log("Cached app ownership for "+user.name);
+		user.appOwnershipCached = true;
+	});
+	
 	user.on("loginKey", function(key) {
 		
 	});
 	
 	user.on("newItems", function(count) {
-		
+		if (!user.initialised()) {
+			return;
+		}
+		user.newItems = true;
+		bot.debug("cards", "new items arrived on "+user.name+", trying to check cards...");
+		checkCards(user);
 	});
 	
 	user.on("newComments", function(count, myItems, discussions) {
@@ -699,6 +1443,16 @@ function login(name, pw, authcode, secret, games, online, callback, opts) {
 	
 	user.on("user", function(sid, userdata) {
 		
+	});
+	
+	user.on("friendMessageEcho", function(sid, msg) {
+		// console.log(user.name+" sent '"+msg+"' to "+sid.getSteamID64());
+		//suppress afk message for the next 5 minutes or so (cfg)
+		if (!msgsSent[user.name]) {
+			msgsSent[user.name] = {};
+		}
+		// msgsSent[user.name][sid.getSteamID64()] = +new Date;
+		msgsSent[user.name][sid.getSteamID64()] = (new Date()).getTime();
 	});
 	
 	user.on("friendMessage", function(sid, msg) {
@@ -714,6 +1468,7 @@ function login(name, pw, authcode, secret, games, online, callback, opts) {
 		if (sidMatch(wl, sid)) {
 			authorized = true;
 		}
+		// bot.debug("cmdAuth", typeof wl, wl, typeof sid, sid, authorized);
 		var publicCommandExecuted = false;
 		var r = checkForPublicCommand(sid, msg, user, name);
 		if (r) {
@@ -729,7 +1484,11 @@ function login(name, pw, authcode, secret, games, online, callback, opts) {
 					var f = function(msg) {
 						user.chatMessage(sid, msg);
 					};
-					privateCommandExecuted = runCommand(p, null, f, "steam");
+					try {
+						privateCommandExecuted = runCommand(p, null, f, "steam");
+					} catch(err) {
+						f("An error occured while executing the command: "+err);
+					}
 				}
 			} else {
 				// user.chatMessage(sid, "You shall not pass.");
@@ -737,21 +1496,32 @@ function login(name, pw, authcode, secret, games, online, callback, opts) {
 		}
 		// console.log("Checking redirection", user.redirectTo, sid);
 		// console.log("matching redirectTo");
+		// bot.debug("redirect", typeof user.redirectTo, user.redirectTo, msg);
 		if (user.redirectTo && !publicCommandExecuted && !privateCommandExecuted && msg.substr(0, 1) != "!" && user.steamID !== user.redirectTo && user.steamID.getSteamID64() !== user.redirectTo && !sidMatch(user.redirectTo, sid, (typeof user.redirectTo) !== "string")) {
 			user.getPersonas([sid], function(personas) {
 				
 				var sid64 = sidToSID64(sid);
 				// console.log(user.redirectTo, personas, personas[sid64]);
-				user.chatMessage(user.redirectTo, "Message from "+((personas[sid64] || {})["player_name"] || "Unknown")+" ["+sid64+"]: "+msg);
+				try {
+					user.chatMessage(user.redirectTo, "Message from "+((personas[sid64] || {})["player_name"] || "Unknown")+" ["+sid64+"]: "+msg);
+				} catch(err) {
+					//printing the error message will spam the console when misconfiguring the redirection, so we'll just ignore it (subject to change)
+				}
 			});
 		}
 		if (!afkMsgsSent[user.name]) {
 			afkMsgsSent[user.name] = {};
 		}
+		if (!msgsSent[user.name]) {
+			msgsSent[user.name] = {};
+		}
 		var last = afkMsgsSent[user.name][sid64] || 0;
-		if (msg.substr(0, 1) !== "!" && ((typeof user.afkMsg) == "string" || user.afkMsg instanceof Array) && (new Date()).getTime() - (settings["afkmsg_delay"] * 1000) > last) {
+		var lastMsg = msgsSent[user.name][sid64] || 0;
+		// bot.debug("afk", typeof user.afkMsg, user.afkMsg, last, lastMsg, msg);
+		if (msg.substr(0, 1) !== "!" && ((typeof user.afkMsg) == "string" || user.afkMsg instanceof Array) && (new Date()).getTime() - (settings["afkmsg_delay"] * 1000) > last && (new Date()).getTime() - (settings["afkmsg_suppress_time"] * 1000) > lastMsg) {
 			var f = false;
 			for (var i in users) {
+				// bot.debug("afkExt", typeof users[i].steamID, users[i].steamID, typeof sid, sid);
 				// console.log("matching logged in user");
 				if (sidMatch(users[i].steamID, sid, true)) {
 					f = true;
@@ -801,7 +1571,8 @@ var game_presets = {
 	stop: [],
 	idling: ["~Idling~"],
 	clock: [":%H:%M"],
-	steam4linux: [221410]
+	steam4linux: [221410],
+	cards: [":cards"] //used for idling cards, maybe remove array later?
 };
 var accs = {
 };
@@ -815,7 +1586,7 @@ settings = {
 	online_via_chat: false,
 	maximum_alarms: 10,
 	public_chat_bot: true,
-	autoaccept: true, //whether to automatically accept friend requests, has to be turned on for every account by setting autoaccept_min_lvl to 0 or higher[CURRENTLY NOT SUPPORTED DUE TO MISSING EVENT/METHODS]
+	autoaccept: true, //whether to automatically accept friend requests, has to be turned on for every account by setting autoaccept_min_lvl to 0 or higher
 	time_special: [
 		{
 			h: [4, 16],
@@ -841,7 +1612,17 @@ settings = {
 	afk_defaultmsg: "Hey there! I'm currently afk, try again later",
 	afkmsg_delay: 5, //delay in seconds
 	newfriends_chatlink_mode: 2,
-	display_time: false
+	display_time: false,
+	afkmsg_suppress_time: 300, //afkmsg suppress time (by own msg)
+	singleFriendAccept: true, //accept max 1 friend per cycle
+	friendSaveFile: "./autofriend.json",
+	cardIdleMultiHours: false, //idle multiple games simultaneously until they reach 2H, currently disabled
+	cardIdleReachCardTimeFirst: false, //whether to idle all games up to 2H before trying to get cards, currently disabled
+	maxGames: 30, //max games to idle at once per account
+	cardCheckDelay: 5 * 60,
+	cardCheckFailDelay: 10,
+	cardCheckMinDelay: 60,
+	cardsWebLogOnEveryTime: true
 };
 function loadSettings(display_output) {
 	try {
@@ -926,6 +1707,7 @@ function loadGamePresets(display_output) {
 	return true;
 }
 loadGamePresets(true);
+loadFriendFile();
 var accids = [];
 for (var i in accs) {
 	accids.push(i);
@@ -938,6 +1720,18 @@ function gamesVarToArray(v) {
 		return [v];
 	}
 	return v;
+}
+function accGetOpts(i) {
+	var obj = {
+		autoaccept_min_lvl: (accs[i]["autoaccept_min_lvl"] == undefined || accs[i]["autoaccept_min_lvl"] == null ? -1 : accs[i]["autoaccept_min_lvl"]),
+		games_blacklist: (accs[i]["games_blacklist"] ? ((typeof (accs[i]["games_blacklist"])) === "string" ? (accs[i]["games_blacklist"].match(/^\d+(,\d+)*$/) ? accs[i]["games_blacklist"].split(",").map(function(x){return parseInt(x)}) : (parseInt(accs[i]["games_blacklist"]) ? [parseInt(accs[i]["games_blacklist"])] : [])) : (accs[i]["games_blacklist"] instanceof Array ? accs[i]["games_blacklist"].filter(function(x){return !isNaN(parseInt(x))}).map(function(x){return parseInt(x)}) : 	[])) : [])
+	};
+	for (var ix in accs[i]) {
+		if (accs[i].hasOwnProperty(ix) && !obj.hasOwnProperty(ix) && !obj[ix]) {
+			obj[ix] = accs[i][ix];
+		}
+	}
+	return obj;
 }
 function doAccId(index) {
 	if (index >= accids.length) {
@@ -964,7 +1758,7 @@ function doAccId(index) {
 		if (pwi) {
 			pws[pwi] = result.password;
 		}
-		login(name, result.password, authcode, secret, games, online, function() {doAccId(index + 1);}, {autoaccept_min_lvl: (accs[i]["autoaccept_min_lvl"] == undefined || accs[i]["autoaccept_min_lvl"] == null ? -1 : accs[i]["autoaccept_min_lvl"])});
+		login(name, result.password, authcode, secret, games, online, function() {doAccId(index + 1);}, accGetOpts(i));
 	}
 	if ((pwi && pws[pwi]) || d["password"]) {
 		console.log("Found existing password for "+name);
@@ -1095,7 +1889,7 @@ function runCommand(cmd, callback, output, via) { //via: steam, cmd
 				if (pwi) {
 					pws[pwi] = result.password;
 				}
-				login(name, result.password, authcode, secret, games, online, callback, {autoaccept_min_lvl: (accs[acc]["autoaccept_min_lvl"] == undefined || accs[acc]["autoaccept_min_lvl"] == null ? -1 : accs[acc]["autoaccept_min_lvl"])});
+				login(name, result.password, authcode, secret, games, online, callback, accGetOpts(acc));
 			}
 			if ((pwi && pws[pwi]) || d["password"]) {
 				op("Found existing password for "+name);
@@ -1213,6 +2007,16 @@ function runCommand(cmd, callback, output, via) { //via: steam, cmd
 			return callback();
 		} else {
 			return true;
+		}
+	}
+	if (cmd[0] == "accounts") {
+		for (var i in users) {
+			op(i);
+		}
+		if (callback) {
+			return callback();
+		} else {
+			return;
 		}
 	}
 	if (cmd[0] == "uimode") {
@@ -1444,6 +2248,178 @@ function runCommand(cmd, callback, output, via) { //via: steam, cmd
 						m = m | num;
 					} else if(input[i]["mod"] === "-" && match) {
 						m = (m | num) - num;
+					} else {
+						m = m;
+					}
+				}
+				user.personaStateFlags = m;
+				updateOnlineStatus(user);
+			}
+			if (callback) {
+				return callback();
+			} else {
+				return;
+			}
+		} else if (m === 3)
+			var acc = cmd[1];
+			var uim = cmd[2];
+			if (!acc || acc == "*" || acc == "all") {
+				acc = null;
+			}
+			if (!uim && acc && !users[acc]) {
+				uim = acc;
+				acc = null;
+			}
+			if (!uim) {
+				uim = "";
+			}
+			var modematch = {
+				0: [
+					"none",
+					"off",
+					"desktop",
+					"client",
+					"0"
+				],
+				"uimode:3": [
+					"web",
+					"www",
+					"browser",
+					"3",
+					"256"
+				],
+				"uimode:2": [
+					"mobile",
+					"phone",
+					"smartphone",
+					"2",
+					"512"
+				],
+				1024: [
+					"bp",
+					"big_picture",
+					"bigpicture",
+					"1",
+					"1024"
+				],
+				2048: [
+					"vr",
+					"virtual_reality",
+					"virtualreality",
+					"vive",
+					"htc_vive",
+					"htcvive"
+				]
+			};
+			// modematch["uimode:0"] = modematch[0];
+			var input = [];
+			var mods = ["+", "-", "="];
+			var lastMod = "=";
+			var lastI = -1;
+			if (mods.includes(uim.substr(0, 1))) {
+				lastMod = uim.substr(0, 1);
+				uim = uim.substr(1);
+				// lastI = 0;
+			}
+			for (var i = 0; true; i++) {
+				if (uim.length <= 0) {
+					break;
+				}
+				if (i >= uim.length || mods.includes(uim.substr(i, 1))) {
+					var modestr = uim.substr(lastI + 1, i - lastI - 1);
+					input.push({mod: lastMod, modestr: modestr});
+					if (i >= uim.length) {
+						break;
+					}
+				}
+				if (mods.includes(uim.substr(i, 1))) {
+					lastI = i;
+					lastMod = uim.substr(i, 1);
+				}
+			}
+			// for (var i in input) {
+				// op(input[i]["mod"]+" "+input[i]["modestr"]);
+			// }
+			var firstI = 0;
+			for (var i = 0; i < input.length; i++) {
+				if (input[i]["mod"] === "=") {
+					firstI = i;
+				}
+			}
+			var appaccs = {};
+			if (acc) {
+				try {
+					if (!users[acc]) {
+						throw Error(acc+" currently isn't logged in");
+					}
+					appaccs[acc] = users[acc];
+				} catch(err) {
+					op("An error occured: "+err);
+					if (callback) {
+						return callback();
+					} else {
+						return;
+					}
+				}
+			} else {
+				appaccs = users;
+			}
+			for (var u in appaccs) {
+				var user = appaccs[u];
+				var m = user.personaStateFlags || 0;
+				for (var i = firstI; i < input.length; i++) {
+					var num = 0;
+					var match = false;
+					var uimode = false;
+					if (parseInt(input[i]["modestr"]) && false) {
+						num = parseInt(input[i]["modestr"]);
+						match = true;
+					} else {
+						for (var i2 in modematch) {
+							if (modematch[i2].includes(input[i]["modestr"])) {
+								match = true;
+								num = i2;
+							}
+						}
+					}
+					if ((typeof num) == "string" && num.substr(0, "uimode:".length) == "uimode:") {
+						uimode = parseInt(num.substr("uimode:".length));
+					}
+					if (input[i]["mod"] === "=" && match) {
+						if (parseInt(num) == 0) {
+							m = 0;
+							user.lastUIMode = 0;
+							user.setUIMode(0);
+						} else if (parseInt(num)) {
+							m = num;
+							user.lastUIMode = 0;
+							user.setUIMode(0);
+							//set ui mode to null
+						} else if (uimode) {
+							m = 0;
+							//set ui mode if possible
+							user.lastUIMode = parseInt(uimode) || 0;
+							user.setUIMode(user.lastUIMode);
+						}
+					} else if(input[i]["mod"] === "+" && match) {
+						if (parseInt(num)) {
+							// m = m | num;
+							m = num;
+						} else if (uimode) {
+							//set ui mode
+							user.lastUIMode = parseInt(uimode) || 0;
+							user.setUIMode(user.lastUIMode);
+						}
+					} else if(input[i]["mod"] === "-" && match) {
+						if (parseInt(num)) {
+							m = (m | num) - num;
+						} else if (uimode) {
+							//remove if same
+							if (user.lastUIMode === parseInt(uimode)) {
+								user.lastUIMode = 0;
+								user.setUIMode(0);
+							}
+						}
 					} else {
 						m = m;
 					}
@@ -1716,7 +2692,12 @@ function runCommand(cmd, callback, output, via) { //via: steam, cmd
 				for (var i in users) {
 					users[i].curIdling = games;
 					idle(users[i], users[i].curIdling);
-					op(i+" is now idling "+games.length+" game"+(games.length == 1 ? "" : "s"));
+					var g2 = processGamesArray(games, users[i]);
+					var len = (g2 instanceof Array ? g2.length : 1);
+					if (games.length > 0 && games[0] === ":cards") {
+						len = "cards";
+					}
+					op(i+" is now idling "+(len === "cards" ? "cards" : len+" game"+(len == 1 ? "" : "s")));
 				}
 			} else {
 				if (!users[user]) {
@@ -1724,7 +2705,12 @@ function runCommand(cmd, callback, output, via) { //via: steam, cmd
 				}
 				users[user].curIdling = games;
 				idle(users[user], users[user].curIdling);
-				op(user+" is now idling "+games.length+" game"+(games.length == 1 ? "" : "s"));
+				var g2 = processGamesArray(games, users[user]);
+				var len = g2.length;
+				if (games.length > 0 && games[0] === ":cards") {
+					len = "cards";
+				}
+				op(user+" is now idling "+(len === "cards" ? "cards" : len+" game"+(len == 1 ? "" : "s")));
 			}
 		} catch(err) {
 			op("An error occured: "+err);
@@ -1918,6 +2904,9 @@ function runCommand(cmd, callback, output, via) { //via: steam, cmd
 			for (var i in users) {
 				var user = users[i];
 				user.redirectTo = red2;
+				if (i === to) {
+					user.redirectTo = null;
+				}
 				if (red2) {
 					op("Activated redirection for "+i);
 				} else {
@@ -1931,6 +2920,9 @@ function runCommand(cmd, callback, output, via) { //via: steam, cmd
 				}
 				var user = users[acc];
 				user.redirectTo = red2;
+				if (acc === to) {
+					user.redirectTo = null;
+				}
 				if (red2) {
 					op("Activated redirection for "+acc);
 				} else {
@@ -1953,12 +2945,14 @@ function runCommand(cmd, callback, output, via) { //via: steam, cmd
 			if (!acc) {
 				aFriendRequests = {};
 				op("Cleared the friend request history for all accounts");
+				updateFriendFile();
 			} else {
 				try {
 					if (!aFriendRequests[acc]) {
 						throw Error("No friend requests were found for "+acc);
 					}
 					delete aFriendRequests[acc];
+					updateFriendFile();
 					op("Cleared the friend request history for "+acc);
 				} catch(err) {
 					op("An error occured: "+err);
@@ -1998,6 +2992,69 @@ function runCommand(cmd, callback, output, via) { //via: steam, cmd
 			}
 		}
 	}
+	if (cmd[0] == "cardstatus") {
+		var acc = cmd[1];
+		if (!acc || acc == "*" || acc == "all") {
+			acc = null;
+		}
+		var appaccs = {};
+		try {
+			if (!acc) {
+				appaccs = users;
+			} else {
+				if (!users[acc]) {
+					throw Error(acc+" currently isn't logged in");
+				}
+				appaccs[acc] = users[acc];
+			}
+			for (var i in appaccs) {
+				var cardGames = appaccs[i].allCardApps;
+				// op(i+": "+JSON.stringify(cardGames));
+				var hasCardGames = true;
+				if (!cardGames || cardGames.length <= 0) {
+					hasCardGames = false;
+				}
+				var totalCards = 0;
+				var totalGames = 0;
+				for (var i2 in cardGames) {
+					var game = cardGames[i2];
+					var drops = game["dropsLeft"];
+					if (drops && drops > 0) {
+						totalCards += drops;
+						totalGames++;
+					}
+				}
+				if (hasCardGames) {
+					op(i+" has "+totalCards+" card drop"+(totalCards == 1 ? "" : "s")+" remaining in "+totalGames+" game"+(totalGames == 1 ? "" : "s"));
+				} else {
+					op(i+" has no card drops remaining or didn't idle cards before");
+				}
+			}
+		} catch(err) {
+			op("An error occured: "+err);
+		}
+		if (callback) {
+			return callback();
+		} else {
+			return;
+		}
+	}
+	if (cmd[0] == "ext") {
+		var ext = cmd[1];
+		try {
+			if (!ext) {
+				throw Error("No extension provided");
+			}
+			bot.loadExtension(ext);
+		} catch(err) {
+			op("An error occured: "+err);
+		}
+		if (callback) {
+			return callback();
+		} else {
+			return;
+		}
+	}
 	if (cmd[0] == "state") {
 		var states = {
 			"gold": 4,
@@ -2034,6 +3091,130 @@ function runCommand(cmd, callback, output, via) { //via: steam, cmd
 			} catch(err) {
 				op("An error occured: "+err);
 			}
+		}
+		if (callback) {
+			return callback();
+		} else {
+			return;
+		}
+	}
+	if (cmd[0] == "badgepagelength") {
+		var acc = cmd[1];
+		try {
+			throw Error("Command disabled due to breaking the card idling. Edit the script to reenable this command");
+			if (!acc) {
+				throw Error("No account supplied. This command may not be applied to all account at once");
+			}
+			if (!users[acc]) {
+				throw Error(acc+" currently isn't logged in");
+			}
+			var bp = [1, 2, 1337];
+			var bpi = 0;
+			var f = function() {
+				if (bpi >= bp.length) {
+					return;
+				}
+				var cbp = bp[bpi++];
+				users[acc].cardPage = cbp;
+				cardCheck(users[acc], f, true);
+			}
+			f();
+		} catch(err) {
+			op("An error occured: "+err);
+		}
+		if (callback) {
+			return callback();
+		} else {
+			return;
+		}
+	}
+	if (cmd[0] == "opt") {
+		var acc = cmd[1];
+		if (!acc || acc == "*" || acc == "all") {
+			acc = null;
+		}
+		var appaccs = {};
+		try {
+			if (!acc) {
+				appaccs = users;
+			} else {
+				if (!users[acc]) {
+					throw Error(acc+" currently isn't logged in");
+				}
+				appaccs[acc] = users[acc];
+			}
+			for (var i in appaccs) {
+				var o = appaccs[i].opts;
+				var os = JSON.stringify(o);
+				op(i+": "+os);
+			}
+		} catch(err) {
+			op("An error occured: "+err);
+		}
+		if (callback) {
+			return callback();
+		} else {
+			return;
+		}
+	}
+	if (cmd[0] == "optcomb") {
+		var acc = cmd[1];
+		if (!acc || acc == "*" || acc == "all") {
+			acc = null;
+		}
+		var appaccs = {};
+		try {
+			if (!acc) {
+				appaccs = users;
+			} else {
+				if (!users[acc]) {
+					throw Error(acc+" currently isn't logged in");
+				}
+				// appaccs.push(users[acc]);
+				appaccs[acc] = users[acc];
+			}
+			for (var i in appaccs) {
+				var oc = appaccs[i].getOptComb("games_blacklist");
+				var ocs = JSON.stringify(oc);
+				op(i+": "+ocs);
+			}
+		} catch(err) {
+			op("An error occured: "+err);
+		}
+	}
+	if (cmd[0] == "curidling") {
+		var acc = cmd[1];
+		try {
+			if (!acc) {
+				throw Error("No account supplied. This command may not be applied to all accounts at once");
+			}
+			if (!users[acc]) {
+				throw Error(acc+" currently isn't logged in");
+			}
+			var ci = users[acc].curIdling;
+			var cis = JSON.stringify(ci);
+			op(acc+": "+cis);
+		} catch(err) {
+			op("An error occured: "+err);
+		}
+		if (callback) {
+			return callback();
+		} else {
+			return;
+		}
+	}
+	if (cmd[0] == "cards") {
+		var acc = cmd[1];
+		try {
+			if (!acc) {
+				throw Error("No account supplied. This command may not be applied to all accounts at once");
+			}
+			if (!users[acc]) {
+				throw Error(acc+" currently isn't logged in");
+			}
+			checkCardsCmd(users[acc], op);
+		} catch(err) {
+			op("An error occured: "+err);
 		}
 		if (callback) {
 			return callback();
@@ -2087,7 +3268,7 @@ function runCommand(cmd, callback, output, via) { //via: steam, cmd
 		}
 	}
 	if ((["admin"]).includes(cmd[0])) {
-		op("\n ================== > All Admin Commands < ================= \n Here is a list with all Admin commands. | Info > - Use * to select all Acc's \n \n ~~~~~~~~~~~~~~~~~~ > Bot Control features < ~~~~~~~~~~~~~~~~~ \n 1. !idle <user or *> <ID/gp or \"your message\">: to start idling games. \n 2. !idle <user or *>: stop to stop idling. \n 3. !addfriend <user or *> <steamid64>: to add a friend with all or one Acc. \n 4. !newfriends <acc or *>: to see all new automatically accepted friends. \n 5. !newfriends clear <user or *>: to clean the list. \n 6. !redirect <user or *> <steam64id>: to redirect all msgs to an Acc. \n 7. !msg <user or *> <steam64id> <msg>: to send a msg to other users. \n 8. !wallet <user or *>: to see how much money you have. \n 9. !afk <user or *> <on or off>: to automatically send an afk msg. \n 10. !uimode [<user or *>] [<phone, web, big_picture (bp) or desktop>]: to change the ui mode. \n 11. !name [<user or *>] <name>: to change the name. \n 12. !help: to see all public commands. \n ===================================================");
+		op("\n ================== > All Admin Commands < ================= \n Here is a list with all Admin commands. | Info > - Use * to select all Accs \n \n ~~~~~~~~~~~~~~~~~~ > Bot Control features < ~~~~~~~~~~~~~~~~~ \n 1. !idle <user or *> <ID/gp or \"your message\">: to start idling games. \n 2. !idle <user or *>: stop to stop idling. \n 3. !addfriend <user or *> <steamid64>: to add a friend with all or one Acc. \n 4. !newfriends <acc or *>: to see all new automatically accepted friends. \n 5. !newfriends clear <user or *>: to clean the list. \n 6. !redirect <user or *> <steam64id>: to redirect all msgs to an Acc. \n 7. !msg <user or *> <steam64id> <msg>: to send a msg to other users. \n 8. !wallet <user or *>: to see how much money you have. \n 9. !afk <user or *> <on or off>: to automatically send an afk msg. \n 10. !uimode [<user or *>] [<phone, web, big_picture (bp) or desktop>]: to change the ui mode. \n 11. !name [<user or *>] <name>: to change the name. \n 12. !help: to see all public commands. \n ===================================================");
 		if (callback) {
 			return callback();
 		} else {
@@ -2095,7 +3276,7 @@ function runCommand(cmd, callback, output, via) { //via: steam, cmd
 		}
 	}
 	if ((["help", "ahelp"]).includes(cmd[0])) {
-		op("add <user>: adds a user to the database");
+		op("add <user>: adds a user to the database [CURRENTLY NOT SUPPORTED]");
 		op("");
 		op("login <user>: login");
 		op("");
@@ -2103,7 +3284,7 @@ function runCommand(cmd, callback, output, via) { //via: steam, cmd
 		op("");
 		op("idle [<user>] [<games>]: idle the specified games with the specified user");
 		op("~<user> is the name of the account you want to idle on");
-		op("no user, '*' and 'all' will result in all logged in user idling");
+		op("no user, '*' and 'all' will result in all logged in users idling");
 		op("~<games> is either a list of game ids (separated with ','),\na game preset or a custom game");
 		op("");
 		op("addfriend [<user>] <newfriend>: add <newfriend> to your friend list");
@@ -2288,7 +3469,7 @@ function checkForPublicCommand(sid, msg, user, name) {
 		var tmsg = "It's currently "+(curDate).toTimeString();
 		var stm = false;
 		var stmsgs = settings["time_special"];
-		for (var i in stmsgs) {
+		for (var i = 0; i < stmsgs.length; i++) {
 			if (!(stmsgs[i] instanceof Object)) {
 				continue;
 			}
@@ -2298,9 +3479,11 @@ function checkForPublicCommand(sid, msg, user, name) {
 			if ((!hs || hs.includes(curDate.getHours())) && (!ms || ms.includes(curDate.getMinutes()))) {
 				stm = true;
 				tmsg = tmsg + " - " + smsg;
+				// tmsg += " ["+i+"]";
 				break;
 			}
 		}
+		// tmsg += " - " + JSON.stringify(stmsgs);
 		user.chatMessage(sid, tmsg);
 		return true;
 	}
@@ -2398,7 +3581,7 @@ function checkForPublicCommand(sid, msg, user, name) {
 }
 
 if (settings["tick_delay"] > 0) {
-	setInterval(tick, (settings["tick_delay"] || 10) * 1000);
+	tickHandle = setInterval(tick, (settings["tick_delay"] || 10) * 1000);
 }
 
 // console.log(getDefaultReplaceObject(), getTimeReplaceObject(), combineObjects([getDefaultReplaceObject(), getTimeReplaceObject()]));
@@ -2414,6 +3597,17 @@ if (settings["tick_delay"] > 0) {
 timing.stop();
 if (process.argv.includes("timing")) {
 	timing.printDetails();
+}
+for (var i = 0; i < process.argv.length; i++) {
+	var sS = "debug:";
+	if (process.argv[i].substr(0, sS.length) === sS) {
+		var dbM = process.argv[i].substr(sS.length);
+		var dbMAr = dbM.replace(/[\s\;]/, ",").split(",").filter(function(x) {return typeof x == "string" && x.length > 0;});
+		bot.debugModes = dbMAr;
+	}
+}
+if (process.argv.includes("writebadgepage")) {
+	bot.writebadgepage = true;
 }
 
 if (settings["autologin"]) {
