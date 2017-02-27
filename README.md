@@ -29,4 +29,4 @@ Installation:
 * Download the steamidle.js
 * Install nodejs and the dependencies listed above ("npm install <module>")
 * Create a file named "idleaccs.json" in the same folder as the steamidle.js
- * Learn JSON or take a look at the examples I'll probably upload in a few minutes
+ * Learn JSON or take a look at the examples
