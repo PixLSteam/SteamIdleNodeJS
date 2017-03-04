@@ -1,6 +1,132 @@
+var path = require("path");
+var fs = require("fs");
+
 Date.prototype.myTimeString = Date.prototype.toTimeString;
 
 var settings = {};
+
+var rawGithubPrefix = "https://raw.githubusercontent.com/PixLSteam/SteamIdleNodeJS/";
+var defaultBranch = "master"; //should we use this?
+var defaultMainFile = "steamidle.js";
+var manifestFile = "manifest.json";
+
+//now check cmd args
+
+var currentMainFilePath = process.argv[1];
+var currentMainFile = path.basename(currentMainFilePath);
+
+var updateCI = process.argv.indexOf("--update");
+
+if (updateCI >= 0) {
+	var branch;
+	var restore = false;
+	// var request;
+	// try {
+		// request = require("request");
+	// } catch(err) {
+		// console.log("You can't use the update function without the 'request' module");
+		// process.exit();
+		// return;
+	// }
+	if (updateCI >= process.argv.length - 1 || process.argv[updateCI + 1].substr(0, 1) === "-" || process.argv.includes("--restore")) { //last entry || next entry is an opt id
+		if (process.argv.includes("--restore")) {
+			restore = true;
+		} else {
+			// ?
+		}
+	} else {
+		branch = process.argv[updateCI + 1];
+	}
+	if (restore) {
+		//look for .backup file
+		var backupPath = currentMainFilePath + ".backup";
+		try {
+			var data = fs.readFileSync(backupPath);
+			fs.writeFileSync(currentMainFilePath, data);
+		} catch(err) {
+			console.log("Couldn't restore the backup file");
+		}
+		process.exit();
+		return;
+	} else if (branch) {
+		var urlPre = rawGithubPrefix + branch + "/";
+		var manifestUrl = urlPre + manifestFile;
+		var xhr = new XMLHttpRequest();
+		xhr.open("GET", manifestUrl, false);
+		xhr.send();
+		if (xhr.state === 200) {
+			//use manifest
+			var maniData = xhr.responseText;
+			try {
+				maniData = JSON.parse(maniData);
+				if (typeof maniData !== "object") {
+					throw Error("Parsed JSON is not an object");
+				}
+			} catch(err) {
+				console.log("Couldn't parse manifest.json");
+				process.exit();
+				return;
+			}
+			var totalF = 0;
+			var succF = 0;
+			for (var i in maniData) {
+				var fData = maniData[i];
+				var relFilePath = fData["path"] || i;
+				var isMain = fData["isMain"] || fData["isMainFile"];
+				if (isMain) {
+					relFilePath = currentMainFile;
+				}
+				var curDir = path.dirname(currentMainFilePath);
+				var absFilePath = path.normalize(curDir+"/"+relFilePath);
+				totalF += 1;
+				var xhr1 = new XMLHttpRequest();
+				xhr1.open("GET", urlPre+i, false);
+				xhr1.send();
+				if (xhr1.status === 200) {
+					try {
+						if (isMain) {
+							fs.writeFileSync(currentMainFilePath + ".backup", fs.readFileSync(currentMainFilePath));
+						}
+						console.log("Successfully created a backup of "+currentMainFile);
+						fs.writeFileSync(absFilePath, xhr1.responseText);
+						succF += 1;
+						console.log("Successfully updated '"+i+"'");
+					} catch(err) {
+						console.log("Error updating '"+i+"', couldn't write to file");
+					}
+				} else {
+					console.log("Error updating '"+i+"', returned status code "+xhr1.status);
+				}
+			}
+			console.log("Finished updating, "+succF+" of "+totalF+" files successfully updated ("+(Math.round((succF / totalF) * 100 * 10) / 10)+"%)");
+			process.exit();
+			return;
+		} else {
+			var mainUrl = urlPre + defaultMainFile;
+			var xhr1 = new XMLHttpRequest();
+			xhr1.open("GET", mainUrl, false);
+			xhr1.send();
+			if (xhr1.status === 200) {
+				// var thisFile = fs.openSync(
+				try {
+					fs.writeFileSync(currentMainFilePath, xhr1.responseText);
+					console.log("Updated "+currentMainFile);
+					process.exit();
+					return;
+				} catch(err) {
+					console.log("Error writing to the main file");
+					process.exit();
+					return;
+				}
+			} else {
+				console.log("Raw JS file request returned status code "+xhr.status);
+				process.exit();
+				return;
+			}
+		}
+	}
+	return;
+}
 
 var timing = {};
 timing.startTime = 0;
@@ -70,7 +196,7 @@ try {
 var SteamID = require("steamid");timing.step("steamid loaded"); //already dependency, so doesn't make a difference for the admin
 
 var prompt = require("prompt");timing.step("prompt loaded");
-var fs = require("fs");timing.step("fs loaded");
+// var fs = require("fs");timing.step("fs loaded");
 
 prompt.start();
 
@@ -129,13 +255,22 @@ Array.prototype.spliceN = function() {
 	return sp;
 }
 
+Array.prototype.mapLower = function() {return this.map(r => r.toLowerCase());}
+Array.prototype.mapUpper = function() {return this.map(r => r.toUpperCase());}
+Array.prototype.mapEndsWith = function(x) {return this.map(r => r.endsWith(x));}
+Array.prototype.mapStartsWith = function(x) {return this.map(r => r.startsWith(x));}
+Array.prototype.mapTrim = function() {return this.map(r => r.trim());}
+Array.prototype.mapTrimLeft = function() {return this.map(r => r.trimLeft());}
+Array.prototype.mapTrimRight = function() {return this.map(r => r.trimRight());}
+Array.prototype.mapLength = function() {return this.map(r => r.length);}
+
 function empty(obj) {
 	for (var i in obj) {
 		if (obj.hasOwnProperty(i)) {
-			return true;
+			return false;
 		}
 	}
-	return false;
+	return true;
 }
 
 function clone(obj) {
@@ -440,14 +575,86 @@ function sidMatch(sid1, sid2, sid1_is_sid_obj) {
 	return false;
 }
 
+// function getAccs(str, via, sender, recipient) {
+function getAccs(str, via, extra) {
+	if (!str || str === "all") {
+		str = "*";
+	}
+	var curAccs = [];
+	var i = 0;
+	var la = 0;
+	var filters = [];
+	while (true) {
+		if (i >= str.length) {
+			if (la < str.length) {
+				filters.push(str.substr(la));
+			}
+			break;
+		}
+		var c = str[i];
+		if (i <= 0 && (c === "[" || c === "!")) {
+			filters.push("*");
+		}
+		if (c === "[" || c === "!") {
+			if (i > 0) {
+				filters.push(str.substr(la, i - la));
+				la = i;
+			}
+		}
+		i++;
+	}
+	// return filters; //for testing
+	function filterName(n) {
+		if (via === "steam") {
+			if ((["me", "i", "my"]).includes(n.toLowerCase())) {
+				//return sender
+				if (extra && extra["from"] && extra["from"]["acc"]) {
+					return extra["from"]["acc"];
+				}
+			}
+			if ((["you"]).includes(n.toLowerCase())) {
+				//return recipient
+				if (extra && extra["to"] && extra["to"]["acc"]) {
+					return extra["to"]["acc"];
+				}
+			}
+		}
+		return n;
+	}
+	for (var i = 0; i < filters.length; i++) {
+		var filter = filters[i];
+		if (filter === "*") {
+			// curAccs = [];
+			// for (var i1 in users) {
+				// curAccs.
+			// }
+			curAccs = Object.keys(users);
+		} else if (filter.startsWith("[") && filter.endsWith("]")) {
+			var fAccs = filter.replace(/\s+/g, "").substr(1, filter.replace(/\s+/g, "").length - 2).toLowerCase().split(",").map((u) => filterName(u));
+			curAccs = curAccs.filter((u) => fAccs.includes(u.toLowerCase()));
+		} else if (filter.startsWith("!")) {
+			curAccs = curAccs.filter((u) => u.toLowerCase() !== filterName(filter.substr(1).toLowerCase()));
+		} else {
+			curAccs = [filterName(filter)].filter((u) => Object.keys(users).includes(u.toLowerCase()));
+		}
+	}
+	return curAccs;
+}
+bot.getAccs = getAccs;
+
 function formatCurrency(bal, cur) {
+	var char_eur = "\u20ac";
+	var char_dollar = "\u0024";
+	var char_yen = "\u00a5";
+	var char_btc = "\u0e3f";
+	var char_corrupted = "";
 	var cc = {
 		USD: {
 			"char": "$",
 			dp: 2
 		},
 		EUR: {
-			"char": "€",
+			"char": "€", // "\u20ac"
 			dp: 2
 		},
 		CAD: {
@@ -473,6 +680,39 @@ function formatCurrency(bal, cur) {
 		},
 		BTC: "฿"
 	};
+	//fix for wrong encoding
+	var chars = {
+		BTC: char_btc,
+		CAD: char_dollar,
+		USD: char_dollar,
+		AUD: char_dollar,
+		JPY: char_yen,
+		EUR: char_eur
+	};
+	for (var i in chars) {
+		if (chars.hasOwnProperty(i)) {
+			if (!(["null", "undefined"]).includes(typeof cc[i])) {
+				if (typeof cc[i] === "string") {
+					if (cc[i] !== chars[i]) {
+						cc[i] == chars[i];
+					}
+				} else {
+					if (cc[i]["char"] !== chars[i]) {
+						cc[i]["char"] == chars[i];
+					}
+				}
+			}
+		}
+	}
+	// if (cc.BTC["char"]) {
+		// if (cc.BTC["char"] !== char_btc) {
+			// cc.BTC["char"] = char_btc;
+		// }
+	// } else {
+		// if (cc.BTC !== char_btc) {
+			// cc.BTC = char_btc;
+		// }
+	// }
 	var curc = SteamUser.ECurrencyCode[cur];
 	if (!curc) {
 		return "" + bal;
@@ -627,7 +867,11 @@ function processGamesArray(games, user) {
 }
 
 function idle(user, games) {
-	user.gamesPlayed(processGamesArray(games, user));
+	var g = games;
+	if (user.overwriteIdling) {
+		g = user.overwriteIdling;
+	}
+	user.gamesPlayed(processGamesArray(g, user));
 }
 
 function checkFriends(user) {
@@ -789,6 +1033,10 @@ function checkCards(user, op) {
 		bot.debug("cards", "cheerio or request not loaded");
 		return;
 	}
+	if (user.cardCheckRunning && user.cardCheckStart + user.getOpt("cardCheckTimeout") * 1000 <= +new Date) {
+		bot.debug("cards", "Card check timeout exceeded for "+user.name+", resending request...");
+		user.cardCheckRunning = false;
+	}
 	if (user.cardCheckRunning) {
 		bot.debug("cardsExt", "already a card check running on "+user.name);
 		return;
@@ -868,6 +1116,7 @@ function checkCards(user, op) {
 		user.currentCardApps = cas;
 		user.allCardApps = cardApps;
 	};
+	user.cardCheckStart = +new Date;
 	cardCheck(user, f);
 }
 
@@ -877,7 +1126,7 @@ function cardCheck(user, callback, keepLastCheck) {
 	}
 	var g_Jar = request.jar();
 	var g_Page = user.cardPage;
-	if (!user.appOwnershipCached) {
+	if (!user.appOwnershipCached && !user.getOpt("cardIdleNoOwnershipCheck")) {
 		bot.debug("cards", user.name+" not ready for card idling, app ownership not cached yet");
 		return false;
 	}
@@ -929,14 +1178,23 @@ function cardCheck(user, callback, keepLastCheck) {
 			if (!keepLastCheck) {
 				user.lastCheck = +new Date;
 			}
-			var ownedPackages = user.licenses.map(function(license) {
-				var pkg = user.picsCache.packages[license.package_id].packageinfo;
-				pkg.time_created = license.time_created;
-				pkg.payment_method = license.payment_method;
-				return pkg;
-			}).filter(function(pkg) {
-				return !(pkg.extended && pkg.extended.freeweekend);
-			});
+			var ownedPackages;
+			if (!user.getOpt("cardIdleNoOwnershipCheck")) {
+				try {
+					ownedPackages = user.licenses.map(function(license) {
+						var pkg = user.picsCache.packages[license.package_id].packageinfo;
+						pkg.time_created = license.time_created;
+						pkg.payment_method = license.payment_method;
+						return pkg;
+					}).filter(function(pkg) {
+						return !(pkg.extended && pkg.extended.freeweekend);
+					});
+				} catch(err) {
+					return false;
+				}
+			} else {
+				ownedPackages = [];
+			}
 			var $_ = Cheerio.load(body);
 			if (!user.firstGameOnPage) {
 				user.firstGameOnPage = {};
@@ -1460,17 +1718,25 @@ function login(name, pw, authcode, secret, games, online, callback, opts) {
 		// user.chatMessage(sid, "Your steamid64: "+sid64);
 		// user.chatMessage(sid, reverseString(msg));
 		var authorized = false;
-		var wl = settings["cmd_whitelist"];
+		// var wl = settings["cmd_whitelist"];
+		var userIds = [];
+		for (var i in users) {
+			if (users[i].steamID) {
+				userIds.push(users[i].steamID.getSteamID64());
+			}
+		}
+		// bot.debug("redirect", userIds);
+		var wl = user.getOpt("cmd_whitelist");
 		if (!wl || !(wl instanceof Array)) {
 			wl = [];
 		}
 		// if (wl.includes(sid64) || wl.includes(sid.getSteam3RenderedID()) || wl.includes(sid.getSteam2RenderedID(true)) || wl.includes(sid.getSteam2RenderedID())) {
-		if (sidMatch(wl, sid)) {
+		if (sidMatch(wl, sid) || (user.getOpt("steamcmd_autoauth") && sidMatch(userIds, sid))) {
 			authorized = true;
 		}
 		// bot.debug("cmdAuth", typeof wl, wl, typeof sid, sid, authorized);
 		var publicCommandExecuted = false;
-		var r = checkForPublicCommand(sid, msg, user, name);
+		var r = checkForPublicCommand(sid, msg, user, name, authorized);
 		if (r) {
 			publicCommandExecuted = true;
 		}
@@ -1484,8 +1750,19 @@ function login(name, pw, authcode, secret, games, online, callback, opts) {
 					var f = function(msg) {
 						user.chatMessage(sid, msg);
 					};
+					var extra = {};
+					extra["from"] = {};
+					extra["to"] = {};
+					extra["to"]["acc"] = user.name;
+					extra["to"]["sid"] = user.sid;
+					extra["from"]["sid"] = sid;
+					for (var i in users) {
+						if (users[i].steamID.getSteamID64() === sid.getSteamID64()) {
+							extra["from"]["acc"] = i;
+						}
+					}
 					try {
-						privateCommandExecuted = runCommand(p, null, f, "steam");
+						privateCommandExecuted = runCommand(p, null, f, "steam", extra);
 					} catch(err) {
 						f("An error occured while executing the command: "+err);
 					}
@@ -1497,13 +1774,18 @@ function login(name, pw, authcode, secret, games, online, callback, opts) {
 		// console.log("Checking redirection", user.redirectTo, sid);
 		// console.log("matching redirectTo");
 		// bot.debug("redirect", typeof user.redirectTo, user.redirectTo, msg);
-		if (user.redirectTo && !publicCommandExecuted && !privateCommandExecuted && msg.substr(0, 1) != "!" && user.steamID !== user.redirectTo && user.steamID.getSteamID64() !== user.redirectTo && !sidMatch(user.redirectTo, sid, (typeof user.redirectTo) !== "string")) {
+		if (user.redirectTo && !publicCommandExecuted && !privateCommandExecuted && msg.substr(0, 1) != "!" && user.steamID !== user.redirectTo && user.steamID.getSteamID64() !== user.redirectTo && !sidMatch(user.redirectTo, sid, (typeof user.redirectTo) !== "string") && !sidMatch(userIds, sid)) {
 			user.getPersonas([sid], function(personas) {
 				
 				var sid64 = sidToSID64(sid);
 				// console.log(user.redirectTo, personas, personas[sid64]);
 				try {
-					user.chatMessage(user.redirectTo, "Message from "+((personas[sid64] || {})["player_name"] || "Unknown")+" ["+sid64+"]: "+msg);
+					var rmsg = "Message from "+((personas[sid64] || {})["player_name"] || "Unknown")+" ["+sid64+"]: "+msg;
+					if ((["console"]).includes(user.redirectTo)) {
+						bot.log(rmsg);
+					} else {
+						user.chatMessage(user.redirectTo, rmsg);
+					}
 				} catch(err) {
 					//printing the error message will spam the console when misconfiguring the redirection, so we'll just ignore it (subject to change)
 				}
@@ -1518,7 +1800,7 @@ function login(name, pw, authcode, secret, games, online, callback, opts) {
 		var last = afkMsgsSent[user.name][sid64] || 0;
 		var lastMsg = msgsSent[user.name][sid64] || 0;
 		// bot.debug("afk", typeof user.afkMsg, user.afkMsg, last, lastMsg, msg);
-		if (msg.substr(0, 1) !== "!" && ((typeof user.afkMsg) == "string" || user.afkMsg instanceof Array) && (new Date()).getTime() - (settings["afkmsg_delay"] * 1000) > last && (new Date()).getTime() - (settings["afkmsg_suppress_time"] * 1000) > lastMsg) {
+		if (msg.substr(0, 1) !== "!" && ((typeof user.afkMsg) == "string" || user.afkMsg instanceof Array) && (new Date()).getTime() - (/*settings["afkmsg_delay"]*/user.getOpt("afkmsg_delay") * 1000) > last && (new Date()).getTime() - (/*settings["afkmsg_suppress_time"]*/user.getOpt("afkmsg_suppress_time") * 1000) > lastMsg && !sidMatch(user.getOpt("afk_blacklist"), sid)) {
 			var f = false;
 			for (var i in users) {
 				// bot.debug("afkExt", typeof users[i].steamID, users[i].steamID, typeof sid, sid);
@@ -1597,6 +1879,11 @@ settings = {
 			h: [13],
 			m: [37],
 			msg: "Time 4 h4x"
+		},
+		{
+			h: [3, 15],
+			m: [36],
+			msg: "It's 3:36!"
 		}
 	],
 	autoaccept_cancel_lowlvl: false,
@@ -1622,7 +1909,13 @@ settings = {
 	cardCheckDelay: 5 * 60,
 	cardCheckFailDelay: 10,
 	cardCheckMinDelay: 60,
-	cardsWebLogOnEveryTime: true
+	cardsWebLogOnEveryTime: true,
+	afk_blacklist: [], //steam ids to ignore for afk message
+	cardCheckTimeout: 60,
+	steamcmd_autoauth: true, //whether to allow admin cmds from own accounts, ignoring whitelist for them
+	cardIdleNoOwnershipCheck: false,
+	enableAdvancedAccountSelection: true,
+	reportBotInterval: 2 //seconds
 };
 function loadSettings(display_output) {
 	try {
@@ -1780,15 +2073,42 @@ function loopReplace(str, o, n) {
 function trimSpaces(str) {
 	return /^\s*((\S.*\S|\S)?)\s*$/.exec(str)[1];
 }
+bot.emulateCommand = function emulateCommand(cmd, opt = {}) {
+	var p = parseCommand(trimSpaces(result.cmd));
+	var log = [];
+	var f = function() {
+		log.push(arguments);
+	}
+	var cb = function() {
+		//do nothing?
+	}
+	runCommand(p, cb, f, opt["via"] || "emulation", {});
+	return {
+		log: log
+	};
+}
 function openCMD() {
 	var next = openCMD;
 	prompt.get({properties:{cmd:{message: "Enter command", description: "Command"}}}, function(err, result) {
 		if (err) {
-			onErr(err);
+			// console.log(typeof err+":"+err);
+			// for (var i in err) {
+				// console.log(i+":"+typeof err[i]+(":"+err[i]));
+			// }
+			if (err == "Error: canceled") {
+				console.log("NOTICE: To exit, type 'exit'");
+				next();
+				return;
+			} else {
+				onErr(err);
+			}
+			// onErr(err); //don't want to print the error message
 			// next();
+			// console.log("onErr triggered");
 			return 1;
 		}
-		var p = parseCommand(trimSpaces(loopReplace(result.cmd, "  ", " ")));
+		// var p = parseCommand(trimSpaces(loopReplace(result.cmd, "  ", " ")));
+		var p = parseCommand(trimSpaces(result.cmd));
 		try {
 			// runCommand(p, next, console.log, "cmd");
 			runCommand(p, next, getDefaultOutput(), "cmd");
@@ -1799,53 +2119,154 @@ function openCMD() {
 		// next();
 	});
 }
-function parseCommand(cmd) {
-	var args = [];
-	var i = 0;
-	var q = "";
-	var la = 0;
-	var ia = false;
-	while (i <= cmd.length) {
-		i += 1;
-		if (i >= cmd.length) {
-			break;
-		}
-		var c = cmd[i];
-		if (c == "'" || c == '"') {
-			if (ia) {
-				if (q == c) {
-					ia = false;
-					q = "";
-					// console.log(1, "'"+a+"'", i, la);
-					var a = cmd.substr(la + 1, i - la - 1);
-					args.push(a);
+function parseCommand(cmd, ext, opt) {
+	if (!ext) {
+		var args = [];
+		var i = 0;
+		var q = "";
+		var la = 0;
+		var ia = false;
+		while (i <= cmd.length) {
+			i += 1;
+			if (i >= cmd.length) {
+				break;
+			}
+			var c = cmd[i];
+			if (c == "'" || c == '"') {
+				if (ia) {
+					if (q == c) {
+						ia = false;
+						q = "";
+						// console.log(1, "'"+a+"'", i, la);
+						var a = cmd.substr(la + 1, i - la - 1);
+						args.push(a);
+					}
+				} else {
+					ia = true;
+					q = c;
+					la = i;
 				}
-			} else {
-				ia = true;
-				q = c;
-				la = i;
+				continue;
 			}
-			continue;
+			if ((c == " " && !ia) || i == cmd.length - 1) {
+				var a = cmd.substr(la, i - la);
+				if (i == cmd.length - 1) {
+					a = cmd.substr(la);
+				}
+				var sl = a[0];
+				var sr = a[a.length - 1];
+				// console.log("2.1", "'"+a+"'", sl, sr, i, la);
+				if (!((sl == "'" || sl == '"') && sl == sr)) {
+					// console.log("2.2", "'"+a+"'");
+					var sO = true;
+					for (var si = 0; si < a.length; si++) {
+						if (a[si] !== " ") {
+							sO = false;
+							break;
+						}
+					}
+					if (!sO) {
+						args.push(a);
+					}
+				}
+				la = i + 1;
+			}
 		}
-		if ((c == " " && !ia) || i == cmd.length - 1) {
-			var a = cmd.substr(la, i - la);
-			if (i == cmd.length - 1) {
-				a = cmd.substr(la);
-			}
-			var sl = a[0];
-			var sr = a[a.length - 1];
-			// console.log("2.1", "'"+a+"'", sl, sr, i, la);
-			if (!((sl == "'" || sl == '"') && sl == sr)) {
-				// console.log("2.2", "'"+a+"'");
-				args.push(a);
-			}
-			la = i + 1;
+		// console.log("end", i, la);
+		return args;
+	} else { //TODO: EXT PARSE (NEW CLASS FOR OUTPUT?[PROB GONNA USE ARRAY AS LONG AS DASH OPTS ARE NOT IMPLEMENTED])
+		var out = [];
+		var ccmd = 0;
+		var mult;
+		if (opt && opt["multiple"] !== null && opt["multiple"] !== undefined) { //prob gonna ignore this
+			mult = opt["multiple"] ? true : false;
 		}
+		var args = [];
+		var i = 0; //current index
+		var q = ""; //last quotation mark used
+		var la = 0; //start of current command part
+		var ia = false; //in quotation marks
+		var ds = ""; //dashString
+		var fq = true; //firstQuote (quotation marks)
+		while (i <= cmd.length) {
+			i += 1;
+			if (i >= cmd.length) {
+				break;
+			}
+			var c = cmd[i];
+			if (c == "'" || c == '"') {
+				if (ia) {
+					if (q == c) {
+						ia = false;
+						q = "";
+						// console.log(1, "'"+a+"'", i, la);
+						var a = cmd.substr(la + 1, i - la - 1);
+						// console.log("pushing1 '"+a+"' to ccmd: "+ccmd);
+						args.push(a);
+						la = i + 1;
+					}
+				} else {
+					ia = true;
+					q = c;
+					if (ds.length > 0 && fq) {
+						
+					} else {
+						la = i;
+					}
+					fq = false;
+				}
+				continue;
+			}
+			if (i == la) {
+				ds = "";
+				fq = true;
+			}
+			if (c == "-" && (i == la || (i - 1 == la && cmd[i - 1] == "-"))) {
+				var dd = (i - 1 == la && cmd[i - 1] == "-");
+				if (dd) {
+					ds = "--";
+				} else {
+					ds = "-";
+				}
+			}
+			if ((c == " " && !ia) || i == cmd.length - 1 || (c == ";" && !ia)) {
+				var a = cmd.substr(la, i - la);
+				if (i == cmd.length - 1) {
+					a = cmd.substr(la);
+				}
+				var sl = a[0];
+				var sr = a[a.length - 1];
+				// console.log("2.1", "'"+a+"'", sl, sr, i, la);
+				if (!((sl == "'" || sl == '"') && sl == sr)) {
+					// console.log("2.2", "'"+a+"'");
+					var sO = true;
+					for (var si = 0; si < a.length; si++) {
+						if (a[si] !== " " && a[si] !== ";") {
+							sO = false;
+							break;
+						}
+					}
+					if (!sO) {
+						// console.log("pushing2 '"+a+"' to ccmd: "+ccmd, i, la, cmd.substr(la, i - la), cmd.length, i == cmd.length - 1);
+						args.push(a);
+					}
+				}
+				la = i + 1;
+				if (i >= cmd.length - 1 || (c == ";" && !ia)) {
+					// console.log("finished command "+ccmd, args);
+					if (args.length > 0) {
+						out[ccmd] = args;
+						args = [];
+						ccmd++;
+					}
+				}
+			}
+		}
+		// console.log("end", i, la);
+		return out;
 	}
-	// console.log("end", i, la);
-	return args;
 }
-function runCommand(cmd, callback, output, via) { //via: steam, cmd
+function runCommand(cmd, callback, output, via, extra) { //via: steam, cmd
 	var op = output;
 	if (!(op instanceof Function)) {
 		op = getDefaultOutput();
@@ -2260,7 +2681,7 @@ function runCommand(cmd, callback, output, via) { //via: steam, cmd
 			} else {
 				return;
 			}
-		} else if (m === 3)
+		} else if (m === 3) {
 			var acc = cmd[1];
 			var uim = cmd[2];
 			if (!acc || acc == "*" || acc == "all") {
@@ -2432,171 +2853,6 @@ function runCommand(cmd, callback, output, via) { //via: steam, cmd
 			} else {
 				return;
 			}
-		} else if (m === 3) {
-			var acc = cmd[1];
-			var uim = cmd[2];
-			if (!acc || acc == "*" || acc == "all") {
-				acc = null;
-			}
-			if (!uim && acc && !users[acc]) {
-				uim = acc;
-				acc = null;
-			}
-			var modematch = {
-				0: [
-					"none",
-					"off",
-					"desktop",
-					"client",
-					"0"
-				],
-				"uimode:3": [
-					"web",
-					"www",
-					"browser",
-					"3",
-					"256"
-				],
-				"uimode:2": [
-					"mobile",
-					"phone",
-					"smartphone",
-					"2",
-					"512"
-				],
-				1024: [
-					"bp",
-					"big_picture",
-					"bigpicture",
-					"1",
-					"1024"
-				],
-				2048: [
-					"vr",
-					"virtual_reality",
-					"virtualreality",
-					"vive",
-					"htc_vive",
-					"htcvive"
-				]
-			};
-			// modematch["uimode:0"] = modematch[0];
-			var input = [];
-			var mods = ["+", "-", "="];
-			var lastMod = "=";
-			var lastI = -1;
-			if (mods.includes(uim.substr(0, 1))) {
-				lastMod = uim.substr(0, 1);
-				uim = uim.substr(1);
-				// lastI = 0;
-			}
-			for (var i = 0; true; i++) {
-				if (i >= uim.length || mods.includes(uim.substr(i, 1))) {
-					var modestr = uim.substr(lastI + 1, i - lastI - 1);
-					input.push({mod: lastMod, modestr: modestr});
-					if (i >= uim.length) {
-						break;
-					}
-				}
-				if (mods.includes(uim.substr(i, 1))) {
-					lastI = i;
-					lastMod = uim.substr(i, 1);
-				}
-			}
-			// for (var i in input) {
-				// op(input[i]["mod"]+" "+input[i]["modestr"]);
-			// }
-			var firstI = 0;
-			for (var i = 0; i < input.length; i++) {
-				if (input[i]["mod"] === "=") {
-					firstI = i;
-				}
-			}
-			var appaccs = {};
-			if (acc) {
-				try {
-					if (!users[acc]) {
-						throw Error(acc+" currently isn't logged in");
-					}
-					appaccs[acc] = users[acc];
-				} catch(err) {
-					op("An error occured: "+err);
-					if (callback) {
-						return callback();
-					} else {
-						return;
-					}
-				}
-			} else {
-				appaccs = users;
-			}
-			for (var u in appaccs) {
-				var user = appaccs[u];
-				var m = user.personaStateFlags || 0;
-				for (var i = firstI; i < input.length; i++) {
-					var num = 0;
-					var match = false;
-					var uimode = false;
-					if (parseInt(input[i]["modestr"]) && false) {
-						num = parseInt(input[i]["modestr"]);
-						match = true;
-					} else {
-						for (var i2 in modematch) {
-							if (modematch[i2].includes(input[i]["modestr"])) {
-								match = true;
-								num = i2;
-							}
-						}
-					}
-					if ((typeof num) == "string" && num.substr(0, "uimode:".length) == "uimode:") {
-						uimode = parseInt(num.substr("uimode:".length));
-					}
-					if (input[i]["mod"] === "=" && match) {
-						if (parseInt(num) == 0) {
-							m = 0;
-							user.lastUIMode = 0;
-							user.setUIMode(0);
-						} else if (parseInt(num)) {
-							m = num;
-							user.lastUIMode = 0;
-							user.setUIMode(0);
-							//set ui mode to null
-						} else if (uimode) {
-							m = 0;
-							//set ui mode if possible
-							user.lastUIMode = parseInt(uimode) || 0;
-							user.setUIMode(user.lastUIMode);
-						}
-					} else if(input[i]["mod"] === "+" && match) {
-						if (parseInt(num)) {
-							m = m | num;
-						} else if (uimode) {
-							//set ui mode
-							user.lastUIMode = parseInt(uimode) || 0;
-							user.setUIMode(user.lastUIMode);
-						}
-					} else if(input[i]["mod"] === "-" && match) {
-						if (parseInt(num)) {
-							m = (m | num) - num;
-						} else if (uimode) {
-							//remove if same
-							if (user.lastUIMode === parseInt(uimode)) {
-								user.lastUIMode = 0;
-								user.setUIMode(0);
-							}
-						}
-					} else {
-						m = m;
-					}
-				}
-				user.personaStateFlags = m;
-				updateOnlineStatus(user);
-			}
-			if (callback) {
-				return callback();
-			} else {
-				return;
-			}
 		}
 	}
 	if (cmd[0] == "name") {
@@ -2688,11 +2944,20 @@ function runCommand(cmd, callback, output, via) { //via: steam, cmd
 		}
 		var games = gamesVarToArray(g);
 		try {
-			if (!user) {
-				for (var i in users) {
-					users[i].curIdling = games;
-					idle(users[i], users[i].curIdling);
-					var g2 = processGamesArray(games, users[i]);
+			if (!user || settings["enableAdvancedAccountSelection"]) {
+				var u = {};
+				if (settings["enableAdvancedAccountSelection"]) {
+					var gAccs = getAccs(user, via, extra);
+					for (var i = 0; i < gAccs.length; i++) {
+						u[gAccs[i]] = users[gAccs[i]];
+					}
+				} else {
+					u = users;
+				}
+				for (var i in u) {
+					u[i].curIdling = games;
+					idle(u[i], u[i].curIdling);
+					var g2 = processGamesArray(games, u[i]);
 					var len = (g2 instanceof Array ? g2.length : 1);
 					if (games.length > 0 && games[0] === ":cards") {
 						len = "cards";
@@ -2706,7 +2971,7 @@ function runCommand(cmd, callback, output, via) { //via: steam, cmd
 				users[user].curIdling = games;
 				idle(users[user], users[user].curIdling);
 				var g2 = processGamesArray(games, users[user]);
-				var len = g2.length;
+				var len = (g2 instanceof Array ? g2.length : 1);
 				if (games.length > 0 && games[0] === ":cards") {
 					len = "cards";
 				}
@@ -3128,6 +3393,57 @@ function runCommand(cmd, callback, output, via) { //via: steam, cmd
 			return;
 		}
 	}
+	if (cmd[0] == "names") {
+		try {
+			var acc = cmd[1];
+			if (!acc) {
+				throw Error("No acc supplied");
+			}
+			if (!users[acc]) {
+				throw Error(acc+" currently isn't logged in");
+			}
+			var namesj = cmd[2];
+			var names;
+			if (namesj === "off") {
+				names = [];
+			} else {
+				names = JSON.parse(namesj);
+			}
+			var delay;
+			if (names.length > 0) {
+				delay = cmd[3];
+				delay = parseFloat(delay);
+				if (isNaN(delay)) {
+					throw Error("Invalid delay");
+				}
+				delay = delay * 1000; //ms
+			}
+			var user = users[acc];
+			if (user.nameChangeInterval) {
+				clearInterval(user.nameChangeInterval);
+				user.nameChangeInterval = 0;
+			}
+			if (names.length > 0) {
+				var nextI = 0;
+				user.nameChangeInterval = setInterval(function() {
+					if (nextI >= names.length) {
+						nextI = 0;
+					}
+					var name = names[nextI++];
+					user.setPersona(SteamUser.EPersonaState[(user.isOnline ? "Online" : "Offline")], name);
+				}, delay);
+			} else {
+				//
+			}
+		} catch(err) {
+			op("An error occured: "+err);
+		}
+		if (callback) {
+			return callback();
+		} else {
+			return;
+		}
+	}
 	if (cmd[0] == "opt") {
 		var acc = cmd[1];
 		if (!acc || acc == "*" || acc == "all") {
@@ -3180,6 +3496,16 @@ function runCommand(cmd, callback, output, via) { //via: steam, cmd
 			}
 		} catch(err) {
 			op("An error occured: "+err);
+		}
+	}
+	if (cmd[0] == "testaccs") {
+		var str = cmd[1];
+		var r = getAccs(str);
+		op(JSON.stringify(r));
+		if (callback) {
+			return callback();
+		} else {
+			return;
 		}
 	}
 	if (cmd[0] == "curidling") {
@@ -3339,6 +3665,30 @@ function runCommand(cmd, callback, output, via) { //via: steam, cmd
 			return true;
 		}
 	}
+	var extCmdExec = false;
+	var extCmds = bot.commands.getCommands();
+	for (var i in extCmds) {
+		if (!extCmds.hasOwnProperty(i)) {
+			continue;
+		}
+		if (cmd[0] == i) {
+			extCmdExec = true;
+			if (typeof extCmds[i]["func"] == "function") {
+				try {
+					extCmds[i]["func"](cmd, op, via, extra);
+				} catch(err) {
+					
+				}
+			}
+		}
+	}
+	if (extCmdExec) {
+		if (callback) {
+			return callback();
+		} else {
+			return true;
+		}
+	}
 	// throw Error("Unhandled command");
 	op("Error: Unhandled command\nEnter 'help' for a list of commands");
 	if (callback) {
@@ -3347,7 +3697,7 @@ function runCommand(cmd, callback, output, via) { //via: steam, cmd
 	return false;
 }
 
-function checkForPublicCommand(sid, msg, user, name) {
+function checkForPublicCommand(sid, msg, user, name, authed) {
 	if (!settings["public_chat_bot"]) {
 		return false;
 	}
@@ -3458,6 +3808,10 @@ function checkForPublicCommand(sid, msg, user, name) {
 			var aDate = new Date(r["time"]);
 			user.chatMessage(sid, "Your alarm ["+r["id"]+"] was set on " + aDate.toDateString() + " " + aDate.toTimeString());
 		}
+		return true;
+	}
+	if (cmd[0] === "authed") {
+		user.chatMessage(sid, "You are "+(authed ? "" : "not ")+"authed");
 		return true;
 	}
 	if (cmd[0] === "date") {
