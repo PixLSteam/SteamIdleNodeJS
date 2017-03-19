@@ -2260,7 +2260,7 @@ function runCommand(cmd, callback, output, via) { //via: steam, cmd
 			} else {
 				return;
 			}
-		} else if (m === 3)
+		} else if (m === 3) {
 			var acc = cmd[1];
 			var uim = cmd[2];
 			if (!acc || acc == "*" || acc == "all") {
