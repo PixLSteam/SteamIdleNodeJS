@@ -297,6 +297,7 @@ bot.log = function log() {
 	var ar = settings.display_time ? [(new Date()).toTimeString()] : [];
 	console.log.apply(console, ar.concat(Array.prototype.slice.call(arguments)));
 }
+bot.error = bot.log; //TODO:: implement error method later, print in red?
 bot.events = {};
 bot.events.listeners = {};
 bot.events.addListener = function addListener(evt, id, func) {
@@ -874,6 +875,8 @@ function idle(user, games) {
 	user.gamesPlayed(processGamesArray(g, user));
 }
 
+bot.idle = idle;
+
 function checkFriends(user) {
 	var friends = user.myFriends;
 	var frs = {};
@@ -911,7 +914,7 @@ function updateFriendFile() {
 
 function loadFriendFile() {
 	try {
-		fs.accessSync(settings["friendSaveFile"], fs.constants.R_OK);
+		fs.accessSync(settings["friendSaveFile"], fs.constants ? fs.constants.R_OK : fs.R_OK);
 		var data = fs.readFileSync(settings["friendSaveFile"]);
 		var d = JSON.parse(data);
 		if (!(d instanceof Object)) {
@@ -930,7 +933,7 @@ function checkFriendRequest(user, fr) {
 		if (!aFriendRequests[user.name]) {
 			aFriendRequests[user.name] = {};
 		}
-		if (autoaccept_min_lvl >= 0 && autoaccept_min_lvl <= ulvl) {
+		if (autoaccept_min_lvl >= 0 && autoaccept_min_lvl <= ulvl && (([null, undefined]).indexOf(user.getOpt("autoaccept_max_lvl")) > -1 || user.getOpt("autoaccept_max_lvl") >= ulvl)) { //test update
 			//accept
 			aFriendRequests[user.name][fr] = "+";
 			user.addFriend(fr, function(err, name) {
@@ -1714,6 +1717,10 @@ function login(name, pw, authcode, secret, games, online, callback, opts) {
 	});
 	
 	user.on("friendMessage", function(sid, msg) {
+		if (!user.steamID) {
+			bot.error("Message received on account without steam id - "+user.name);
+			return;
+		}
 		var sid64 = sid.getSteamID64();
 		// user.chatMessage(sid, "Your steamid64: "+sid64);
 		// user.chatMessage(sid, reverseString(msg));
@@ -1757,7 +1764,7 @@ function login(name, pw, authcode, secret, games, online, callback, opts) {
 					extra["to"]["sid"] = user.sid;
 					extra["from"]["sid"] = sid;
 					for (var i in users) {
-						if (users[i].steamID.getSteamID64() === sid.getSteamID64()) {
+						if (users[i].steamID && users[i].steamID.getSteamID64() === sid.getSteamID64()) {
 							extra["from"]["acc"] = i;
 						}
 					}
@@ -1915,11 +1922,13 @@ settings = {
 	steamcmd_autoauth: true, //whether to allow admin cmds from own accounts, ignoring whitelist for them
 	cardIdleNoOwnershipCheck: false,
 	enableAdvancedAccountSelection: true,
-	reportBotInterval: 2 //seconds
+	reportBotInterval: 2, //seconds
+	reportBotRetries: 20,
+	fakeCSInterval: 2
 };
 function loadSettings(display_output) {
 	try {
-		fs.accessSync(settingsfile, fs.constants.R_OK);
+		fs.accessSync(settingsfile, fs.constants ? fs.constants.R_OK : fs.R_OK);
 		var setdata = fs.readFileSync(settingsfile);
 		try {
 			var pdata = JSON.parse(setdata);
@@ -1953,7 +1962,7 @@ function loadSettings(display_output) {
 }
 loadSettings(true);
 try {
-	fs.accessSync(accfile, fs.constants.R_OK);
+	fs.accessSync(accfile, fs.constants ? fs.constants.R_OK : fs.R_OK);
 } catch (err) {
 	console.log("Couldn't read account file '"+accfile+"'");
 	return 1;
@@ -1973,7 +1982,7 @@ try {
 }
 function loadGamePresets(display_output) {
 	try {
-		fs.accessSync(game_presets_file, fs.constants.R_OK);
+		fs.accessSync(game_presets_file, fs.constants ? fs.constants.R_OK : fs.R_OK);
 		var gpdata = fs.readFileSync(game_presets_file);
 		try {
 			var pdata = JSON.parse(gpdata);
@@ -3746,6 +3755,9 @@ function checkForPublicCommand(sid, msg, user, name, authed) {
 				user.chatMessage(sid, "No alarms were found");
 			} else {
 				for (var i in alarms[name][sid.getSteamID64()]) {
+					if (!alarms[name][sid.getSteamID64()].hasOwnProperty(i)) {
+						continue;
+					}
 					var obj = alarms[name][sid.getSteamID64()][i];
 					var id = obj["id"];
 					var tim = obj["time"];
