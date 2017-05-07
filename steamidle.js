@@ -3554,6 +3554,8 @@ function runCommand(cmd, callback, output, via, extra) { //via: steam, cmd
 				var nextI = 0;
 				var iters = 0;
 				var f = (function() {
+					var name = names[nextI++];
+					user.setPersona(SteamUser.EPersonaState[(user.isOnline ? "Online" : "Offline")], name);
 					if (nextI >= names.length) {
 						nextI = 0;
 						iters++;
@@ -3565,8 +3567,6 @@ function runCommand(cmd, callback, output, via, extra) { //via: steam, cmd
 							return;
 						}
 					}
-					var name = names[nextI++];
-					user.setPersona(SteamUser.EPersonaState[(user.isOnline ? "Online" : "Offline")], name);
 				});
 				user.nameChangeInterval = setInterval(f, delay);
 				if (bot.getSetting("namechange_instant")) {
