@@ -490,23 +490,27 @@ bot.prepareNameForOutput = function prepareNameForOutput(acc) {
 	return bot.users[acc].getAccOpt("name_replacement");
 }
 bot.aliasToAcc = function aliasToAcc(acc) {
+	bot.debug("alias", "Alias resolving function started");
 	if (!bot.getSetting("alias_enable")) {
 		bot.debug("alias", "Alias is disabled");
 		return acc;
 	}
 	if (!acc) {
+		bot.debug("alias", "No alias supplied");
 		return acc;
 	}
 	var cs = bot.getSetting("alias_casesensitive");
 	var keywords = ["*", "all", "none"];
 	if (keywords.indexOf(cs ? acc : acc.toLowerCase()) >= -1) {
+		bot.debug("alias", "Keyword supplied as account name, returning...");
 		return acc.toLowerCase();
 	}
 	var accs = bot.accs;
 	if (!accs) {
+		bot.debug("alias", "No 'accs' object found");
 		return acc;
 	}
-	bot.debug("alias", "checking 'accs' obj");
+	bot.debug("alias", "Checking 'accs' obj");
 	for (var i in accs) {
 		if (!accs.hasOwnProperty(i)) {
 			continue;
