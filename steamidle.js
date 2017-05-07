@@ -491,6 +491,7 @@ bot.prepareNameForOutput = function prepareNameForOutput(acc) {
 }
 bot.aliasToAcc = function aliasToAcc(acc) {
 	if (!bot.getSetting("alias_enable")) {
+		bot.debug("alias", "Alias is disabled");
 		return acc;
 	}
 	if (!acc) {
@@ -499,12 +500,13 @@ bot.aliasToAcc = function aliasToAcc(acc) {
 	var cs = bot.getSetting("alias_casesensitive");
 	var keywords = ["*", "all", "none"];
 	if (keywords.indexOf(cs ? acc : acc.toLowerCase()) >= -1) {
-		return acc;
+		return acc.toLowerCase();
 	}
 	var accs = bot.accs;
 	if (!accs) {
 		return acc;
 	}
+	bot.debug("alias", "checking 'accs' obj");
 	for (var i in accs) {
 		if (!accs.hasOwnProperty(i)) {
 			continue;
@@ -520,12 +522,14 @@ bot.aliasToAcc = function aliasToAcc(acc) {
 				if (typeof al[i2] !== "string") {
 					continue;
 				}
+				bot.debug("alias", "alias '"+al[i2]+"' found for account "+i);
 				if ((cs ? acc : acc.toLowerCase()) == (cs ? al[i2] : al[i2].toLowerCase())) {
 					return i;
 				}
 			}
 		}
 	}
+	bot.debug("alias", "no alias found matching '"+acc+"', returning as account name...");
 	return acc;
 }
 
