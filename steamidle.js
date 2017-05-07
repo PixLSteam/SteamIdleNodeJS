@@ -56,7 +56,7 @@ if (updateCI >= 0) {
 		process.exit();
 		return;
 	} else if (branch) {
-		if (!XMLHttpRequest) {
+		if (!global.XMLHttpRequest) {
 			console.error("xmlhttprequest must be installed in order to use the update functionality");
 			process.exit();
 			return;
