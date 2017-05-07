@@ -501,7 +501,7 @@ bot.aliasToAcc = function aliasToAcc(acc) {
 	}
 	var cs = bot.getSetting("alias_casesensitive");
 	var keywords = ["*", "all", "none"];
-	if (keywords.indexOf(cs ? acc : acc.toLowerCase()) >= -1) {
+	if (keywords.indexOf(cs ? acc : acc.toLowerCase()) > -1) {
 		bot.debug("alias", "Keyword supplied as account name, returning...");
 		return acc.toLowerCase();
 	}
