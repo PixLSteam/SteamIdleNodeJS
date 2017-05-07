@@ -50,6 +50,7 @@ if (updateCI >= 0) {
 		try {
 			var data = fs.readFileSync(backupPath);
 			fs.writeFileSync(currentMainFilePath, data);
+			console.log("Successfully restored the backup file");
 		} catch(err) {
 			console.log("Couldn't restore the backup file");
 		}
