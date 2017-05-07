@@ -121,6 +121,12 @@ if (updateCI >= 0) {
 			if (xhr1.status === 200) {
 				// var thisFile = fs.openSync(
 				try {
+					fs.writeFileSync(currentMainFilePath + ".backup", fs.readFileSync(currentMainFilePath));
+					console.log("Successfully backed up "+currentMainFile);
+				} catch(err) {
+					console.log("Error backing up "+currentMainFile+", still continuing to update");
+				}
+				try {
 					fs.writeFileSync(currentMainFilePath, xhr1.responseText);
 					console.log("Updated "+currentMainFile);
 					process.exit();
