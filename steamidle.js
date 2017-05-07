@@ -2024,7 +2024,8 @@ settings = {
 	reportBotRetries: 4,
 	fakeCSInterval: 2,
 	alias_enable: true,
-	alias_casesensitive: false
+	alias_casesensitive: false,
+	namechange_instant: true
 };
 function loadSettings(display_output) {
 	try {
@@ -3518,7 +3519,7 @@ function runCommand(cmd, callback, output, via, extra) { //via: steam, cmd
 			}
 			var namesj = cmd[2];
 			var names;
-			if (namesj === "off") {
+			if ((["stop", "off"]).indexOf(namesj.toLowerCase()) > -1) {
 				names = [];
 			} else {
 				names = JSON.parse(namesj);
@@ -3548,7 +3549,7 @@ function runCommand(cmd, callback, output, via, extra) { //via: steam, cmd
 			if (names.length > 0) {
 				var nextI = 0;
 				var iters = 0;
-				user.nameChangeInterval = setInterval(function() {
+				var f = (function() {
 					if (nextI >= names.length) {
 						nextI = 0;
 						iters++;
@@ -3562,7 +3563,11 @@ function runCommand(cmd, callback, output, via, extra) { //via: steam, cmd
 					}
 					var name = names[nextI++];
 					user.setPersona(SteamUser.EPersonaState[(user.isOnline ? "Online" : "Offline")], name);
-				}, delay);
+				});
+				user.nameChangeInterval = setInterval(f, delay);
+				if (bot.getSetting("namechange_instant")) {
+					f();
+				}
 				op("Started changing names on "+bot.prepareNameForOutput(acc));
 			} else {
 				//
