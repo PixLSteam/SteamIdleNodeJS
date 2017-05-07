@@ -3588,8 +3588,21 @@ function runCommand(cmd, callback, output, via, extra) { //via: steam, cmd
 						if (iters >= iter) {
 							clearInterval(user.nameChangeInterval);
 							user.nameChangeInterval = 0;
-							//TODO: use default name setting
-							op("Automatically stopped changing names on "+bot.prepareNameForOutput(acc));
+							var defName = user.getAccOpt("name_default");
+							var ext = "";
+							if (typeof defName == "string") {
+								ext = ", changing back to default name after next interval";
+							}
+							//TODO: use default name setting | DONE?
+							op("Automatically stopped changing names on "+bot.prepareNameForOutput(acc)+ext);
+							if (typeof defName == "string") {
+								var f2 = (function() {
+									user.setPersona(SteamUser.EPersonaState[(user.isOnline ? "Online" : "Offline")], defName);
+									clearInterval(user.nameChangeInterval);
+									user.nameChangeInterval = 0;
+								});
+								user.nameChangeInterval = setInterval(f2, delay);
+							}
 							return;
 						}
 					}
