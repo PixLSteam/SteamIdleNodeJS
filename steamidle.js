@@ -208,6 +208,14 @@ SteamUser.prototype.idlingCards = function idlingCards() {
 	return this.curIdling && this.curIdling.indexOf(":cards") > -1;
 }
 
+SteamUser.prototype.getAccOpt = function getAccOpt(opt) {
+	if (this.opts) {
+		if (([null, undefined]).indexOf(this.opts[opt]) <= -1) {
+			return this.opts[opt];
+		}
+	}
+	return null;
+}
 SteamUser.prototype.getOpt = function getOpt(opt) {
 	if (this.opts) {
 		if (([null, undefined]).indexOf(this.opts[opt]) <= -1) {
@@ -293,6 +301,15 @@ var bot = {};
 global.bot = bot;
 bot.users = users;
 bot.alarms = alarms;
+bot.emotes = {
+	lenny_web: "( ͡° ͜ʖ ͡°)", //ignore how it looks here lmao
+	shrug:  "¯\_(ツ)_/¯",
+	running: "♪~ ᕕ(ᐛ)ᕗ",
+	tableflip: "(╯°□°）╯︵ ┻━┻",
+	wavedance: "~(˘▾˘~)",
+	tableunflip: "┬──┬ ノ( ゜-゜ノ)",
+	robodance: "╚(ಠ_ಠ)=┐"
+}
 bot.log = function log() {
 	var ar = settings.display_time ? [(new Date()).toTimeString()] : [];
 	console.log.apply(console, ar.concat(Array.prototype.slice.call(arguments)));
@@ -435,6 +452,81 @@ bot.debug = function debug(mode) {
 		var c = 0;
 		op.apply(null, ["DEBUG|"+mode].concat(Array.prototype.slice.call(arguments).filter(function(x) {return c++ > 0;})));
 	}
+}
+
+bot.prepareNameForOutput = function prepareNameForOutput(acc) {
+	if (!acc) {
+		return "ERROR";
+	}
+	if (!bot.users || !bot.users[acc]) {
+		//TODO: check offline users | DONE?
+		var accs = bot.accs;
+		if (!accs || !accs[acc]) {
+			return acc;
+		}
+		// for (var i in accs) {
+			// if (!accs.hasOwnProperty(i)) {
+				// continue;
+			// }
+			// var rep = accs[i]["name_replacement"];
+			// if (typeof rep == "string") {
+				// return rep;
+			// }
+		// }
+		try {
+			var rep = accs[acc]["name_replacement"];
+			if (typeof rep == "string") {
+				return rep;
+			}
+		} catch (e) {
+			
+		}
+		// return "ERROR";
+		return acc;
+	}
+	if (!bot.users[acc].getAccOpt("name_replacement")) {
+		return acc;
+	}
+	return bot.users[acc].getAccOpt("name_replacement");
+}
+bot.aliasToAcc = function aliasToAcc(acc) {
+	if (!bot.getSetting("alias_enable")) {
+		return acc;
+	}
+	if (!acc) {
+		return acc;
+	}
+	var cs = bot.getSetting("alias_casesensitive");
+	var keywords = ["*", "all", "none"];
+	if (keywords.indexOf(cs ? acc : acc.toLowerCase()) >= -1) {
+		return acc;
+	}
+	var accs = bot.accs;
+	if (!accs) {
+		return acc;
+	}
+	for (var i in accs) {
+		if (!accs.hasOwnProperty(i)) {
+			continue;
+		}
+		var al = accs[i]["name_alias"];
+		if (typeof al == "string") {
+			if ((cs ? acc : acc.toLowerCase()) == (cs ? al : al.toLowerCase())) {
+				return i;
+			}
+		}
+		if (al instanceof Array) {
+			for (var i2 = 0; i2 < al.length; i2++) {
+				if (typeof al[i2] !== "string") {
+					continue;
+				}
+				if ((cs ? acc : acc.toLowerCase()) == (cs ? al[i2] : al[i2].toLowerCase())) {
+					return i;
+				}
+			}
+		}
+	}
+	return acc;
 }
 
 function reverseString(str) {
@@ -620,7 +712,8 @@ function getAccs(str, via, extra) {
 				}
 			}
 		}
-		return n;
+		// return n;
+		return bot.aliasToAcc(n);
 	}
 	for (var i = 0; i < filters.length; i++) {
 		var filter = filters[i];
@@ -997,7 +1090,7 @@ function checkForFriendRequests(user) {
 function checkNewFriends(user, op) {
 	var name = (user || {}).name || user;
 	if (!aFriendRequests[name]) {
-		op("No friend requests found for "+name);
+		op("No friend requests found for "+bot.prepareNameForOutput(name));
 		return;
 	}
 	for (var frid in aFriendRequests[name]) {
@@ -1015,7 +1108,7 @@ function checkNewFriends(user, op) {
 		}
 		var clm = settings["newfriends_chatlink_mode"] || settings["newfriends_chatlink"];
 		var lnk = ((clm == 1 || (clm == 2 && state == "+")) ? "steam://friends/message/" : "http://steamcommunity.com/profiles/")+frid;
-		op(name+": "+lnk+" "+msg);
+		op(bot.prepareNameForOutput(name)+": "+lnk+" "+msg);
 	}
 }
 
@@ -1037,26 +1130,26 @@ function checkCards(user, op) {
 		return;
 	}
 	if (user.cardCheckRunning && user.cardCheckStart + user.getOpt("cardCheckTimeout") * 1000 <= +new Date) {
-		bot.debug("cards", "Card check timeout exceeded for "+user.name+", resending request...");
+		bot.debug("cards", "Card check timeout exceeded for "+bot.prepareNameForOutput(user.name)+", resending request...");
 		user.cardCheckRunning = false;
 	}
 	if (user.cardCheckRunning) {
-		bot.debug("cardsExt", "already a card check running on "+user.name);
+		bot.debug("cardsExt", "already a card check running on "+bot.prepareNameForOutput(user.name));
 		return;
 	}
 	if (!user.idlingCards()) {
-		bot.debug("cardsExt", user.name+" isn't idling cards");
+		bot.debug("cardsExt", bot.prepareNameForOutput(user.name)+" isn't idling cards");
 		return;
 	}
 	var lastCheck = user.lastCheck || 0;
 	var lastDiff = (+new Date) - lastCheck;
 	var delay = user.newItems ? user.getOpt("cardCheckMinDelay") : (user.getOpt("cardCheckDelay") || settings["cardCheckDelay"] || (5 * 60));
 	if (lastDiff < delay * 1000) {
-		bot.debug("cardsExt", "still in delay for "+user.name);
+		bot.debug("cardsExt", "still in delay for "+bot.prepareNameForOutput(user.name));
 		return;
 	}
 	var f = function(u, cardApps) {
-		bot.debug("cards", "received card apps on "+user.name);
+		bot.debug("cards", "received card apps on "+bot.prepareNameForOutput(user.name));
 		user.newItems = false;
 		if (cardApps.length <= 0) {
 			user.currentCardApps = [];
@@ -1115,7 +1208,7 @@ function checkCards(user, op) {
 		} else {
 			cas = ca.map(function(x){return x.appid});
 		}
-		bot.debug("cards", "card apps to idle for "+user.name+": ", cas);
+		bot.debug("cards", "card apps to idle for "+bot.prepareNameForOutput(user.name)+": ", cas);
 		user.currentCardApps = cas;
 		user.allCardApps = cardApps;
 	};
@@ -1130,19 +1223,19 @@ function cardCheck(user, callback, keepLastCheck) {
 	var g_Jar = request.jar();
 	var g_Page = user.cardPage;
 	if (!user.appOwnershipCached && !user.getOpt("cardIdleNoOwnershipCheck")) {
-		bot.debug("cards", user.name+" not ready for card idling, app ownership not cached yet");
+		bot.debug("cards", bot.prepareNameForOutput(user.name)+" not ready for card idling, app ownership not cached yet");
 		return false;
 	}
 	if (!user.cookies && !bot.getSetting("cardsWebLogOnEveryTime")) {
-		bot.debug("cards", user.name+" not ready for card idling, no cookies found");
+		bot.debug("cards", bot.prepareNameForOutput(user.name)+" not ready for card idling, no cookies found");
 		return false;
 	}
 	if (!user.licenses) {
-		bot.debug("cards", user.name+" not ready for card idling, no licenses found");
+		bot.debug("cards", bot.prepareNameForOutput(user.name)+" not ready for card idling, no licenses found");
 		return false;
 	}
 	if (!user.picsCache || !user.picsCache.packages) {
-		bot.debug("cards", user.name+" not ready for card idling, no picsCache found");
+		bot.debug("cards", bot.prepareNameForOutput(user.name)+" not ready for card idling, no picsCache found");
 		return false;
 	}
 	user.cardCheckRunning = true;
@@ -1157,7 +1250,7 @@ function cardCheck(user, callback, keepLastCheck) {
 		if (!keepLastCheck) {
 			user.lastCheck = +new Date;
 		}
-		bot.debug("cards", "now sending request for badge page "+g_Page+" on acc "+user.name);
+		bot.debug("cards", "now sending request for badge page "+g_Page+" on acc "+bot.prepareNameForOutput(user.name));
 		rq("https://steamcommunity.com/my/badges/?p="+g_Page, function(err, response, body) {
 			user.cardCheckRunning = false;
 			if (err || response.statusCode != 200) {
@@ -1165,19 +1258,19 @@ function cardCheck(user, callback, keepLastCheck) {
 				if (!keepLastCheck) {
 					user.lastCheck = (+new Date) - user.getOpt("cardCheckDelay") * 1000 + user.getOpt("cardCheckFailDelay") * 1000; //could also do this with the param tho
 				}
-				bot.debug("cards", "badge request for "+user.name+" failed, returned "+(err ? "error" : "status code " + response.statusCode));
+				bot.debug("cards", "badge request for "+bot.prepareNameForOutput(user.name)+" failed, returned "+(err ? "error" : "status code " + response.statusCode));
 				return false;
 			}
 			if (bot.writebadgepage) {
 				try {
 					var fn = "./badges_"+user.name+"_"+processStr(":%Y-%m-%d_%H-%M-%S")+".html";
 					fs.writeFileSync(fn, body);
-					bot.debug("cards", "successfully wrote the badge page for "+user.name+" to a file");
+					bot.debug("cards", "successfully wrote the badge page for "+bot.prepareNameForOutput(user.name)+" to a file");
 				} catch(err) {
-					bot.debug("cards", "error writing the badge page for "+user.name+" to a file");
+					bot.debug("cards", "error writing the badge page for "+bot.prepareNameForOutput(user.name)+" to a file");
 				}
 			}
-			bot.debug("cards", "badge request for "+user.name+" arrived, now parsing...");
+			bot.debug("cards", "badge request for "+bot.prepareNameForOutput(user.name)+" arrived, now parsing...");
 			if (!keepLastCheck) {
 				user.lastCheck = +new Date;
 			}
@@ -1237,7 +1330,7 @@ function cardCheck(user, callback, keepLastCheck) {
 				appid2 = appid2 ? appid2[1] : null;
 				if (appid2 && parseInt(appid2) && user.picsCache.apps.hasOwnProperty(appid2) && !user.firstGameOnPage[g_Page]) {
 					user.firstGameOnPage[g_Page] = parseInt(appid2);
-					bot.debug("cards", "set first game on page "+g_Page+" for "+user.name+" to "+appid2);
+					bot.debug("cards", "set first game on page "+g_Page+" for "+bot.prepareNameForOutput(user.name)+" to "+appid2);
 				}
 				// for (var i in ael) {
 					// op(i+" "+typeof ael[i]);
@@ -1307,7 +1400,7 @@ function cardCheck(user, callback, keepLastCheck) {
 					cardApps.push(gameObj);
 				}
 			}
-			bot.debug("cards", "finished parsing badge page for "+user.name+", found "+cardApps.length+" game"+(cardApps.length == 1 ? "" : "s"));
+			bot.debug("cards", "finished parsing badge page for "+bot.prepareNameForOutput(user.name)+", found "+cardApps.length+" game"+(cardApps.length == 1 ? "" : "s"));
 			if (callback) {
 				callback(user, cardApps);
 			}
@@ -1865,6 +1958,7 @@ var game_presets = {
 };
 var accs = {
 };
+bot.accs = accs;
 settings = {
 	autologin: true, //whether to login every account on startup
 	cmd: true, //whether to display a command line after logging in every account (only valid if autologin is true)
@@ -1923,8 +2017,10 @@ settings = {
 	cardIdleNoOwnershipCheck: false,
 	enableAdvancedAccountSelection: true,
 	reportBotInterval: 2, //seconds
-	reportBotRetries: 20,
-	fakeCSInterval: 2
+	reportBotRetries: 4,
+	fakeCSInterval: 2,
+	alias_enable: true,
+	alias_casesensitive: false
 };
 function loadSettings(display_output) {
 	try {
@@ -1974,6 +2070,7 @@ try {
 		throw Error("Parsed JSON is not an object");
 	}
 	accs = pdata;
+	bot.accs = accs;
 } catch(err) {
 	// console.log(err);
 	console.log("Couldn't parse account file: "+err);
@@ -2063,10 +2160,10 @@ function doAccId(index) {
 		login(name, result.password, authcode, secret, games, online, function() {doAccId(index + 1);}, accGetOpts(i));
 	}
 	if ((pwi && pws[pwi]) || d["password"]) {
-		console.log("Found existing password for "+name);
+		console.log("Found existing password for "+bot.prepareNameForOutput(name));
 		f(0, {password: (pwi && pws[pwi]) ? pws[pwi] : d["password"]});
 	} else {
-		console.log("Requesting password for "+name);
+		console.log("Requesting password for "+bot.prepareNameForOutput(name));
 		prompt.get({properties: {password: {hidden: true, replace: "*"}}}, f);
 	}
 }
@@ -2281,7 +2378,7 @@ function runCommand(cmd, callback, output, via, extra) { //via: steam, cmd
 		op = getDefaultOutput();
 	}
 	if (cmd[0] == "login") {
-		var acc = cmd[1];
+		var acc = bot.aliasToAcc(cmd[1]);
 		if (via === "steam") {
 			op("Logging in via steam chat is not possible");
 			if (callback) {
@@ -2322,10 +2419,10 @@ function runCommand(cmd, callback, output, via, extra) { //via: steam, cmd
 				login(name, result.password, authcode, secret, games, online, callback, accGetOpts(acc));
 			}
 			if ((pwi && pws[pwi]) || d["password"]) {
-				op("Found existing password for "+name);
+				op("Found existing password for "+bot.prepareNameForOutput(name));
 				f(0, {password: (pwi && pws[pwi]) ? pws[pwi] : d["password"]});
 			} else {
-				op("Requesting password for "+name);
+				op("Requesting password for "+bot.prepareNameForOutput(name));
 				prompt.get({properties: {password: {hidden: true, replace: "*"}}}, f);
 			}
 			return;
@@ -2339,7 +2436,7 @@ function runCommand(cmd, callback, output, via, extra) { //via: steam, cmd
 		}
 	}
 	if (cmd[0] == "logout") {
-		var acc = cmd[1];
+		var acc = bot.aliasToAcc(cmd[1]);
 		if (via === "steam" && !settings["logout_via_chat"]) {
 			op("Logging out via steam chat is disabled");
 			if (callback) {
@@ -2360,7 +2457,7 @@ function runCommand(cmd, callback, output, via, extra) { //via: steam, cmd
 			} else {
 				//logout acc
 				if (!users[acc]) {
-					throw Error(user+" currently isn't logged in");
+					throw Error(bot.prepareNameForOutput(user)+" currently isn't logged in");
 				}
 				users[acc].prepareKill();
 				users[acc].logOff();
@@ -2376,9 +2473,9 @@ function runCommand(cmd, callback, output, via, extra) { //via: steam, cmd
 		}
 	}
 	if (cmd[0] == "online") {
-		var user = cmd[1];
+		var user = bot.aliasToAcc(cmd[1]);
 		if (via === "steam" && !settings["online_via_chat"]) {
-			op("Switching to online mode via steam chat is disabled");
+			op("Switching to online mode via steam chat is disabled"); //doesn't really make sense, I know
 			if (callback) {
 				return callback();
 			} else {
@@ -2393,7 +2490,7 @@ function runCommand(cmd, callback, output, via, extra) { //via: steam, cmd
 				}
 			} else {
 				if (!users[user]) {
-					throw Error(user+" currently isn't logged in");
+					throw Error(bot.prepareNameForOutput(user)+" currently isn't logged in");
 				}
 				users[user].isOnline = true;
 				updateOnlineStatus(user);
@@ -2408,7 +2505,7 @@ function runCommand(cmd, callback, output, via, extra) { //via: steam, cmd
 		}
 	}
 	if (cmd[0] == "offline") {
-		var user = cmd[1];
+		var user = bot.aliasToAcc(cmd[1]);
 		if (via === "steam" && !settings["offline_via_chat"]) {
 			op("Switching to offline mode via steam chat is disabled");
 			if (callback) {
@@ -2425,7 +2522,7 @@ function runCommand(cmd, callback, output, via, extra) { //via: steam, cmd
 				}
 			} else {
 				if (!users[user]) {
-					throw Error(user+" currently isn't logged in");
+					throw Error(bot.prepareNameForOutput(user)+" currently isn't logged in");
 				}
 				users[user].isOnline = false;
 				updateOnlineStatus(user);
@@ -2441,7 +2538,11 @@ function runCommand(cmd, callback, output, via, extra) { //via: steam, cmd
 	}
 	if (cmd[0] == "accounts") {
 		for (var i in users) {
-			op(i);
+			if (bot.getSetting("debug_replacename")) {
+				op(bot.prepareNameForOutput(i));
+			} else {
+				op(i);
+			}
 		}
 		if (callback) {
 			return callback();
@@ -2452,7 +2553,7 @@ function runCommand(cmd, callback, output, via, extra) { //via: steam, cmd
 	if (cmd[0] == "uimode") {
 		var m = 3;
 		if (m === 1) {
-			var acc = cmd[1];
+			var acc = bot.aliasToAcc(cmd[1]);
 			var uim = cmd[2];
 			if (!acc || acc == "*" || acc == "all") {
 				acc = null;
@@ -2554,7 +2655,7 @@ function runCommand(cmd, callback, output, via, extra) { //via: steam, cmd
 				return true;
 			}
 		} else if(m === 2) {
-			var acc = cmd[1];
+			var acc = bot.aliasToAcc(cmd[1]);
 			var uim = cmd[2];
 			if (!acc || acc == "*" || acc == "all") {
 				acc = null;
@@ -2691,7 +2792,7 @@ function runCommand(cmd, callback, output, via, extra) { //via: steam, cmd
 				return;
 			}
 		} else if (m === 3) {
-			var acc = cmd[1];
+			var acc = bot.aliasToAcc(cmd[1]);
 			var uim = cmd[2];
 			if (!acc || acc == "*" || acc == "all") {
 				acc = null;
@@ -2865,7 +2966,7 @@ function runCommand(cmd, callback, output, via, extra) { //via: steam, cmd
 		}
 	}
 	if (cmd[0] == "name") {
-		var acc = cmd[1];
+		var acc = bot.aliasToAcc(cmd[1]);
 		var name = cmd[2];
 		if (!acc || acc == "*" || acc == "all") {
 			acc = null;
@@ -2885,15 +2986,15 @@ function runCommand(cmd, callback, output, via, extra) { //via: steam, cmd
 		if (!acc) {
 			for (var i in users) {
 				users[i].setPersona(SteamUser.EPersonaState[(users[i].isOnline ? "Online" : "Offline")], name);
-				op("Set name for "+i+" to '"+name+"'");
+				op("Set name for "+bot.prepareNameForOutput(i)+" to '"+name+"'");
 			}
 		} else {
 			try {
 				if (!users[acc]) {
-					throw Error(acc+" currently isn't logged in");
+					throw Error(bot.prepareNameForOutput(acc)+" currently isn't logged in");
 				}
 				users[acc].setPersona(SteamUser.EPersonaState[(users[acc].isOnline ? "Online" : "Offline")], name);
-				op("Set name for "+acc+" to '"+name+"'");
+				op("Set name for "+bot.prepareNameForOutput(acc)+" to '"+name+"'");
 			} catch(err) {
 				op("An error occured: "+err);
 			}
@@ -2935,7 +3036,7 @@ function runCommand(cmd, callback, output, via, extra) { //via: steam, cmd
 		}
 	}
 	if (cmd[0] == "idle") {
-		var user = cmd[1];
+		var user = bot.aliasToAcc(cmd[1]);
 		if (!user || user == "all" || user == "*") {
 			user = null;
 		}
@@ -2971,11 +3072,11 @@ function runCommand(cmd, callback, output, via, extra) { //via: steam, cmd
 					if (games.length > 0 && games[0] === ":cards") {
 						len = "cards";
 					}
-					op(i+" is now idling "+(len === "cards" ? "cards" : len+" game"+(len == 1 ? "" : "s")));
+					op(bot.prepareNameForOutput(i)+" is now idling "+(len === "cards" ? "cards" : len+" game"+(len == 1 ? "" : "s")));
 				}
 			} else {
 				if (!users[user]) {
-					throw Error(user+" currently isn't logged in");
+					throw Error(bot.prepareNameForOutput(user)+" currently isn't logged in");
 				}
 				users[user].curIdling = games;
 				idle(users[user], users[user].curIdling);
@@ -2984,7 +3085,7 @@ function runCommand(cmd, callback, output, via, extra) { //via: steam, cmd
 				if (games.length > 0 && games[0] === ":cards") {
 					len = "cards";
 				}
-				op(user+" is now idling "+(len === "cards" ? "cards" : len+" game"+(len == 1 ? "" : "s")));
+				op(bot.prepareNameForOutput(user)+" is now idling "+(len === "cards" ? "cards" : len+" game"+(len == 1 ? "" : "s")));
 			}
 		} catch(err) {
 			op("An error occured: "+err);
@@ -2997,7 +3098,7 @@ function runCommand(cmd, callback, output, via, extra) { //via: steam, cmd
 	}
 	if (cmd[0] == "addfriend") {
 		var frid = cmd[2];
-		var acc = cmd[1];
+		var acc = bot.aliasToAcc(cmd[1]);
 		if (!frid) {
 			frid = acc;
 			acc = "*";
@@ -3030,7 +3131,7 @@ function runCommand(cmd, callback, output, via, extra) { //via: steam, cmd
 							cb();
 							return;
 						}
-						op("Successfully added "+name+" ["+frid+"] with account "+user.name);
+						op("Successfully added "+name+" ["+frid+"] with account "+bot.prepareNameForOutput(user.name));
 						cb();
 					});
 				};
@@ -3039,7 +3140,7 @@ function runCommand(cmd, callback, output, via, extra) { //via: steam, cmd
 			} else {
 				var user = users[acc];
 				if (!user) {
-					throw Error(acc+" currently isn't logged in");
+					throw Error(bot.prepareNameForOutput(acc)+" currently isn't logged in");
 				}
 				user.addFriend(frid, function(err, name) {
 					if (err) {
@@ -3066,7 +3167,7 @@ function runCommand(cmd, callback, output, via, extra) { //via: steam, cmd
 	if (cmd[0] == "msg") {
 		var msg = cmd[3];
 		var frid = cmd[2];
-		var acc = cmd[1];
+		var acc = bot.aliasToAcc(cmd[1]);
 		if (!msg && frid) {
 			msg = frid;
 			frid = acc;
@@ -3086,17 +3187,17 @@ function runCommand(cmd, callback, output, via, extra) { //via: steam, cmd
 				for (var i in users) {
 					try {
 						users[i].chatMessage(frid, msg);
-						op("Message to "+frid+" was sent by "+i);
+						op("Message to "+frid+" was sent by "+bot.prepareNameForOutput(i));
 					} catch(err) {
 						op("An error occured: "+err);
 					}
 				}
 			} else {
 				if (!users[acc]) {
-					throw Error(acc+" currently isn't logged in");
+					throw Error(bot.prepareNameForOutput(acc)+" currently isn't logged in");
 				}
 				users[acc].chatMessage(frid, msg);
-				op("Message to "+frid+" was sent by "+acc);
+				op("Message to "+frid+" was sent by "+bot.prepareNameForOutput(acc));
 			}
 		} catch(err) {
 			op("An error occured: "+err);
@@ -3116,7 +3217,7 @@ function runCommand(cmd, callback, output, via, extra) { //via: steam, cmd
 				var wal = user.wallet;
 				if (wal) {
 					if (!wal.hasWallet) {
-						op(i+" doesn't have a wallet");
+						op(bot.prepareNameForOutput(i)+" doesn't have a wallet");
 					} else {
 						var bal = wal.balance;
 						var cur = wal.currency;
@@ -3124,10 +3225,10 @@ function runCommand(cmd, callback, output, via, extra) { //via: steam, cmd
 							total[cur] = 0;
 						}
 						total[cur] += bal;
-						op(i+" has a wallet balance of "+formatCurrency(bal, cur));
+						op(bot.prepareNameForOutput(i)+" has a wallet balance of "+formatCurrency(bal, cur));
 					}
 				} else {
-					op("No wallet found for "+i);
+					op("No wallet found for "+bot.prepareNameForOutput(i));
 				}
 			}
 			op("Total:");
@@ -3138,20 +3239,20 @@ function runCommand(cmd, callback, output, via, extra) { //via: steam, cmd
 		} else {
 			try {
 				if (!users[acc]) {
-					throw Error(acc+" currently isn't logged in");
+					throw Error(bot.prepareNameForOutput(acc)+" currently isn't logged in");
 				}
 				var user = users[acc];
 				var wal = user.wallet;
 				if (wal) {
 					if (!wal.hasWallet) {
-						op(acc+" doesn't have a wallet");
+						op(bot.prepareNameForOutput(acc)+" doesn't have a wallet");
 					} else {
 						var bal = wal.balance;
 						var cur = wal.currency;
-						op(acc+" has a wallet balance of "+formatCurrency(bal, cur));
+						op(bot.prepareNameForOutput(acc)+" has a wallet balance of "+formatCurrency(bal, cur));
 					}
 				} else {
-					op("No wallet found for "+i);
+					op("No wallet found for "+bot.prepareNameForOutput(i));
 				}
 			} catch(err) {
 				op("An error occured: "+err);
@@ -3165,7 +3266,7 @@ function runCommand(cmd, callback, output, via, extra) { //via: steam, cmd
 	}
 	if (cmd[0] == "redirect") {
 		//redirectTo
-		var acc = cmd[1];
+		var acc = bot.aliasToAcc(cmd[1]);
 		var to = cmd[2];
 		if (!acc || acc == "*" || acc == "all") {
 			acc = null;
@@ -3182,15 +3283,15 @@ function runCommand(cmd, callback, output, via, extra) { //via: steam, cmd
 					user.redirectTo = null;
 				}
 				if (red2) {
-					op("Activated redirection for "+i);
+					op("Activated redirection for "+bot.prepareNameForOutput(i));
 				} else {
-					op("Deactivated redirection for "+i);
+					op("Deactivated redirection for "+bot.prepareNameForOutput(i));
 				}
 			}
 		} else {
 			try {
 				if (!users[acc]) {
-					throw Error(acc+" currently isn't logged in");
+					throw Error(bot.prepareNameForOutput(acc)+" currently isn't logged in");
 				}
 				var user = users[acc];
 				user.redirectTo = red2;
@@ -3198,9 +3299,9 @@ function runCommand(cmd, callback, output, via, extra) { //via: steam, cmd
 					user.redirectTo = null;
 				}
 				if (red2) {
-					op("Activated redirection for "+acc);
+					op("Activated redirection for "+bot.prepareNameForOutput(acc));
 				} else {
-					op("Deactivated redirection for "+acc);
+					op("Deactivated redirection for "+bot.prepareNameForOutput(acc));
 				}
 			} catch(err) {
 				op("An error occured: "+err);
@@ -3214,7 +3315,7 @@ function runCommand(cmd, callback, output, via, extra) { //via: steam, cmd
 	}
 	if (cmd[0] == "newfriends") {
 		var cmd1 = cmd[1];
-		var acc = cmd[2];
+		var acc = bot.aliasToAcc(cmd[2]);
 		if (cmd1 == "clear") {
 			if (!acc) {
 				aFriendRequests = {};
@@ -3223,11 +3324,11 @@ function runCommand(cmd, callback, output, via, extra) { //via: steam, cmd
 			} else {
 				try {
 					if (!aFriendRequests[acc]) {
-						throw Error("No friend requests were found for "+acc);
+						throw Error("No friend requests were found for "+bot.prepareNameForOutput(acc));
 					}
 					delete aFriendRequests[acc];
 					updateFriendFile();
-					op("Cleared the friend request history for "+acc);
+					op("Cleared the friend request history for "+bot.prepareNameForOutput(acc));
 				} catch(err) {
 					op("An error occured: "+err);
 				}
@@ -3241,7 +3342,7 @@ function runCommand(cmd, callback, output, via, extra) { //via: steam, cmd
 		if (true) {//list
 			if (!acc) {
 				if (cmd1 != "list") {
-					acc = cmd1;
+					acc = bot.aliasToAcc(cmd1);
 				}
 			}
 			if (!acc || acc == "*" || acc == "all") {
@@ -3267,7 +3368,7 @@ function runCommand(cmd, callback, output, via, extra) { //via: steam, cmd
 		}
 	}
 	if (cmd[0] == "cardstatus") {
-		var acc = cmd[1];
+		var acc = bot.aliasToAcc(cmd[1]);
 		if (!acc || acc == "*" || acc == "all") {
 			acc = null;
 		}
@@ -3277,7 +3378,7 @@ function runCommand(cmd, callback, output, via, extra) { //via: steam, cmd
 				appaccs = users;
 			} else {
 				if (!users[acc]) {
-					throw Error(acc+" currently isn't logged in");
+					throw Error(bot.prepareNameForOutput(acc)+" currently isn't logged in");
 				}
 				appaccs[acc] = users[acc];
 			}
@@ -3299,9 +3400,9 @@ function runCommand(cmd, callback, output, via, extra) { //via: steam, cmd
 					}
 				}
 				if (hasCardGames) {
-					op(i+" has "+totalCards+" card drop"+(totalCards == 1 ? "" : "s")+" remaining in "+totalGames+" game"+(totalGames == 1 ? "" : "s"));
+					op(bot.prepareNameForOutput(i)+" has "+totalCards+" card drop"+(totalCards == 1 ? "" : "s")+" remaining in "+totalGames+" game"+(totalGames == 1 ? "" : "s"));
 				} else {
-					op(i+" has no card drops remaining or didn't idle cards before");
+					op(bot.prepareNameForOutput(i)+" has no card drops remaining or didn't idle cards before");
 				}
 			}
 		} catch(err) {
@@ -3340,7 +3441,7 @@ function runCommand(cmd, callback, output, via, extra) { //via: steam, cmd
 			"vr": 2048,
 			"memz": 3844
 		};
-		var acc = cmd[1];
+		var acc = bot.aliasToAcc(cmd[1]);
 		var state = cmd[2] || 0;
 		if (!acc || acc == "*" || acc == "all") {
 			acc = null;
@@ -3352,16 +3453,16 @@ function runCommand(cmd, callback, output, via, extra) { //via: steam, cmd
 			for (var i in users) {
 				users[i].personaStateFlags = state;
 				updateOnlineStatus(users[i]);
-				op("Set persona state flags for "+i+" to "+state);
+				op("Set persona state flags for "+bot.prepareNameForOutput(i)+" to "+state);
 			}
 		} else {
 			try {
 				if (!users[acc]) {
-					throw Error(acc+" currently isn't logged in");
+					throw Error(bot.prepareNameForOutput(acc)+" currently isn't logged in");
 				}
 				users[acc].personaStateFlags = state;
 				updateOnlineStatus(users[acc]);
-				op("Set persona state flags for "+acc+" to "+state);
+				op("Set persona state flags for "+bot.prepareNameForOutput(acc)+" to "+state);
 			} catch(err) {
 				op("An error occured: "+err);
 			}
@@ -3373,14 +3474,14 @@ function runCommand(cmd, callback, output, via, extra) { //via: steam, cmd
 		}
 	}
 	if (cmd[0] == "badgepagelength") {
-		var acc = cmd[1];
+		var acc = bot.aliasToAcc(cmd[1]);
 		try {
 			throw Error("Command disabled due to breaking the card idling. Edit the script to reenable this command");
 			if (!acc) {
-				throw Error("No account supplied. This command may not be applied to all account at once");
+				throw Error("No account supplied. This command may not be applied to all accounts at once");
 			}
 			if (!users[acc]) {
-				throw Error(acc+" currently isn't logged in");
+				throw Error(bot.prepareNameForOutput(acc)+" currently isn't logged in");
 			}
 			var bp = [1, 2, 1337];
 			var bpi = 0;
@@ -3404,12 +3505,12 @@ function runCommand(cmd, callback, output, via, extra) { //via: steam, cmd
 	}
 	if (cmd[0] == "names") {
 		try {
-			var acc = cmd[1];
+			var acc = bot.aliasToAcc(cmd[1]);
 			if (!acc) {
 				throw Error("No acc supplied");
 			}
 			if (!users[acc]) {
-				throw Error(acc+" currently isn't logged in");
+				throw Error(bot.prepareNameForOutput(acc)+" currently isn't logged in");
 			}
 			var namesj = cmd[2];
 			var names;
@@ -3427,6 +3528,14 @@ function runCommand(cmd, callback, output, via, extra) { //via: steam, cmd
 				}
 				delay = delay * 1000; //ms
 			}
+			var iter = Infinity;
+			if (names.length > 0 && cmd.length > 4) {
+				iter = cmd[4];
+				iter = parseFloat(iter);
+				if (isNaN(iter) || iter < 1) {
+					iter = Infinity;
+				}
+			}
 			var user = users[acc];
 			if (user.nameChangeInterval) {
 				clearInterval(user.nameChangeInterval);
@@ -3434,15 +3543,23 @@ function runCommand(cmd, callback, output, via, extra) { //via: steam, cmd
 			}
 			if (names.length > 0) {
 				var nextI = 0;
+				var iters = 0;
 				user.nameChangeInterval = setInterval(function() {
 					if (nextI >= names.length) {
 						nextI = 0;
+						iters++;
+						if (iters >= iter) {
+							clearInterval(user.nameChangeInterval);
+							user.nameChangeInterval = 0;
+						}
 					}
 					var name = names[nextI++];
 					user.setPersona(SteamUser.EPersonaState[(user.isOnline ? "Online" : "Offline")], name);
 				}, delay);
+				op("Started changing names on "+bot.prepareNameForOutput(acc));
 			} else {
 				//
+				op("Stopped changing names on "+bot.prepareNameForOutput(acc));
 			}
 		} catch(err) {
 			op("An error occured: "+err);
@@ -3454,7 +3571,7 @@ function runCommand(cmd, callback, output, via, extra) { //via: steam, cmd
 		}
 	}
 	if (cmd[0] == "opt") {
-		var acc = cmd[1];
+		var acc = bot.aliasToAcc(cmd[1]);
 		if (!acc || acc == "*" || acc == "all") {
 			acc = null;
 		}
@@ -3464,7 +3581,7 @@ function runCommand(cmd, callback, output, via, extra) { //via: steam, cmd
 				appaccs = users;
 			} else {
 				if (!users[acc]) {
-					throw Error(acc+" currently isn't logged in");
+					throw Error(bot.prepareNameForOutput(acc)+" currently isn't logged in");
 				}
 				appaccs[acc] = users[acc];
 			}
@@ -3483,7 +3600,7 @@ function runCommand(cmd, callback, output, via, extra) { //via: steam, cmd
 		}
 	}
 	if (cmd[0] == "optcomb") {
-		var acc = cmd[1];
+		var acc = bot.aliasToAcc(cmd[1]);
 		if (!acc || acc == "*" || acc == "all") {
 			acc = null;
 		}
@@ -3493,7 +3610,7 @@ function runCommand(cmd, callback, output, via, extra) { //via: steam, cmd
 				appaccs = users;
 			} else {
 				if (!users[acc]) {
-					throw Error(acc+" currently isn't logged in");
+					throw Error(bot.prepareNameForOutput(acc)+" currently isn't logged in");
 				}
 				// appaccs.push(users[acc]);
 				appaccs[acc] = users[acc];
@@ -3501,14 +3618,14 @@ function runCommand(cmd, callback, output, via, extra) { //via: steam, cmd
 			for (var i in appaccs) {
 				var oc = appaccs[i].getOptComb("games_blacklist");
 				var ocs = JSON.stringify(oc);
-				op(i+": "+ocs);
+				op(bot.prepareNameForOutput(i)+": "+ocs);
 			}
 		} catch(err) {
 			op("An error occured: "+err);
 		}
 	}
 	if (cmd[0] == "testaccs") {
-		var str = cmd[1];
+		var str = bot.aliasToAcc(cmd[1]); //TODO: implement alias in getAccs, remove it here
 		var r = getAccs(str);
 		op(JSON.stringify(r));
 		if (callback) {
@@ -3518,17 +3635,17 @@ function runCommand(cmd, callback, output, via, extra) { //via: steam, cmd
 		}
 	}
 	if (cmd[0] == "curidling") {
-		var acc = cmd[1];
+		var acc = bot.aliasToAcc(cmd[1]);
 		try {
 			if (!acc) {
 				throw Error("No account supplied. This command may not be applied to all accounts at once");
 			}
 			if (!users[acc]) {
-				throw Error(acc+" currently isn't logged in");
+				throw Error(bot.prepareNameForOutput(acc)+" currently isn't logged in");
 			}
 			var ci = users[acc].curIdling;
 			var cis = JSON.stringify(ci);
-			op(acc+": "+cis);
+			op(bot.prepareNameForOutput(acc)+": "+cis);
 		} catch(err) {
 			op("An error occured: "+err);
 		}
@@ -3539,13 +3656,13 @@ function runCommand(cmd, callback, output, via, extra) { //via: steam, cmd
 		}
 	}
 	if (cmd[0] == "cards") {
-		var acc = cmd[1];
+		var acc = bot.aliasToAcc(cmd[1]);
 		try {
 			if (!acc) {
 				throw Error("No account supplied. This command may not be applied to all accounts at once");
 			}
 			if (!users[acc]) {
-				throw Error(acc+" currently isn't logged in");
+				throw Error(bot.prepareNameForOutput(acc)+" currently isn't logged in");
 			}
 			checkCardsCmd(users[acc], op);
 		} catch(err) {
@@ -3558,7 +3675,7 @@ function runCommand(cmd, callback, output, via, extra) { //via: steam, cmd
 		}
 	}
 	if (cmd[0] == "afk") {
-		var acc = cmd[1];
+		var acc = bot.aliasToAcc(cmd[1]);
 		var msg = cmd[2] || settings["afk_defaultmsg"];
 		if (!acc || acc == "*" || acc == "all") {
 			acc = null;
@@ -3576,21 +3693,21 @@ function runCommand(cmd, callback, output, via, extra) { //via: steam, cmd
 			for (var i in users) {
 				users[i].afkMsg = (disable ? null : msg);
 				if (disable) {
-					op("Disabled afk message for "+i);
+					op("Disabled afk message for "+bot.prepareNameForOutput(i));
 				} else {
-					op("Set afk message for "+i);
+					op("Set afk message for "+bot.prepareNameForOutput(i));
 				}
 			}
 		} else {
 			try {
 				if (!users[acc]) {
-					throw Error(acc+" currently isn't logged in");
+					throw Error(bot.prepareNameForOutput(acc)+" currently isn't logged in");
 				}
 				users[acc].afkMsg = (disable ? null : msg);
 				if (disable) {
-					op("Disabled afk message for "+acc);
+					op("Disabled afk message for "+bot.prepareNameForOutput(acc));
 				} else {
-					op("Set afk message for "+acc);
+					op("Set afk message for "+bot.prepareNameForOutput(acc));
 				}
 			} catch(err) {
 				op("An error occured: "+err);
@@ -3650,7 +3767,7 @@ function runCommand(cmd, callback, output, via, extra) { //via: steam, cmd
 				return true;
 			}
 		}
-		var acc = cmd[1];
+		var acc = bot.aliasToAcc(cmd[1]);
 		if (!acc || acc == "*" || acc == "all") {
 			acc = null;
 		}
@@ -3661,7 +3778,7 @@ function runCommand(cmd, callback, output, via, extra) { //via: steam, cmd
 		} else {
 			try {
 				if (!users[acc]) {
-					throw(acc+" currently isn't logged in");
+					throw(bot.prepareNameForOutput(acc)+" currently isn't logged in");
 				}
 				checkFriends(users[acc]);
 			} catch(err) {
