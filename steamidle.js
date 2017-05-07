@@ -3555,6 +3555,9 @@ function runCommand(cmd, callback, output, via, extra) { //via: steam, cmd
 						if (iters >= iter) {
 							clearInterval(user.nameChangeInterval);
 							user.nameChangeInterval = 0;
+							//TODO: use default name setting
+							op("Automatically stopped changing names on "+bot.prepareNameForOutput(acc));
+							return;
 						}
 					}
 					var name = names[nextI++];
