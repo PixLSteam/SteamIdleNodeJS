@@ -3085,7 +3085,12 @@ function runCommand(cmd, callback, output, via, extra) { //via: steam, cmd
 				} else {
 					u = users;
 				}
+				var c = 0;
 				for (var i in u) {
+					if (!u.hasOwnProperty(i)) {
+						continue;
+					}
+					c++;
 					u[i].curIdling = games;
 					idle(u[i], u[i].curIdling);
 					var g2 = processGamesArray(games, u[i]);
@@ -3094,6 +3099,9 @@ function runCommand(cmd, callback, output, via, extra) { //via: steam, cmd
 						len = "cards";
 					}
 					op(bot.prepareNameForOutput(i)+" is now idling "+(len === "cards" ? "cards" : len+" game"+(len == 1 ? "" : "s")));
+				}
+				if (c === 0) {
+					op("No account found matching your criteria");
 				}
 			} else {
 				if (!users[user]) {
