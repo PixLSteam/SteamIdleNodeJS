@@ -1,6 +1,13 @@
 var path = require("path");
 var fs = require("fs");
 
+try {
+	var xhr = require("xmlhttprequest");
+	global.XMLHttpRequest = xhr.XMLHttpRequest;
+} catch(e) {
+	
+}
+
 Date.prototype.myTimeString = Date.prototype.toTimeString;
 
 var settings = {};
@@ -49,6 +56,11 @@ if (updateCI >= 0) {
 		process.exit();
 		return;
 	} else if (branch) {
+		if (!XMLHttpRequest) {
+			console.error("xmlhttprequest must be installed in order to use the update functionality");
+			process.exit();
+			return;
+		}
 		var urlPre = rawGithubPrefix + branch + "/";
 		var manifestUrl = urlPre + manifestFile;
 		var xhr = new XMLHttpRequest();
