@@ -556,6 +556,14 @@ bot.aliasToAcc = function aliasToAcc(acc) {
 	return acc;
 }
 
+bot.steamIDFromDict = function(id) { //TODO: implement dict
+	return id;
+}
+
+bot.dictOrAliasToAcc = function dictOrAliasToAcc(acc) { //TODO: add sid dict
+	return bot.aliasToAcc(acc);
+}
+
 function reverseString(str) {
 	var s = "";
 	for (var i = str.length; i--; i >= 0) {
@@ -1723,10 +1731,14 @@ function login(name, pw, authcode, secret, games, online, callback, opts) {
 	 
 	user.on("error", function(err) {
 		if (err == "Error: InvalidPassword") {
-			console.log("Invalid password entered for "+name);
-			user.logOff();
-			if (callback) {
-				callback();
+			if (!user.loggedIn) {
+				console.log("Invalid password entered for "+bot.prepareNameForOutput(name));
+				user.logOff();
+				if (callback) {
+					callback();
+				}
+			} else {
+				console.log("Invalid password entered for "+bot.prepareNameForOutput(name)+" although already being logged in...");
 			}
 		} else {
 			console.log("An error occured...");
@@ -1810,7 +1822,7 @@ function login(name, pw, authcode, secret, games, online, callback, opts) {
 			return;
 		}
 		user.newItems = true;
-		bot.debug("cards", "new items arrived on "+user.name+", trying to check cards...");
+		bot.debug("cards", "new items arrived on "+bot.prepareNameForOutput(user.name)+", trying to check cards...");
 		checkCards(user);
 	});
 	
@@ -1819,6 +1831,10 @@ function login(name, pw, authcode, secret, games, online, callback, opts) {
 	});
 	
 	user.on("tradeRequest", function(steamID, respond) {
+		
+	});
+	
+	user.on("tradeOffers", function(count) {
 		
 	});
 	
@@ -1838,7 +1854,7 @@ function login(name, pw, authcode, secret, games, online, callback, opts) {
 	
 	user.on("friendMessage", function(sid, msg) {
 		if (!user.steamID) {
-			bot.error("Message received on account without steam id - "+user.name);
+			bot.error("Message received on account without steam id - "+bot.prepareNameForOutput(user.name));
 			return;
 		}
 		var sid64 = sid.getSteamID64();
@@ -2268,7 +2284,7 @@ function parseCommand(cmd, ext, opt) {
 			var c = cmd[i];
 			if (c == "'" || c == '"') {
 				if (ia) {
-					if (q == c) {
+					if (q == c && (i >= cmd.length - 1 || ([" "]).indexOf(cmd[i + 1]) > -1)) {
 						ia = false;
 						q = "";
 						// console.log(1, "'"+a+"'", i, la);
@@ -3303,7 +3319,7 @@ function runCommand(cmd, callback, output, via, extra) { //via: steam, cmd
 	if (cmd[0] == "redirect") {
 		//redirectTo
 		var acc = bot.aliasToAcc(cmd[1]);
-		var to = cmd[2];
+		var to = bot.dictOrAliasToAcc(cmd[2]);
 		if (!acc || acc == "*" || acc == "all") {
 			acc = null;
 		}
