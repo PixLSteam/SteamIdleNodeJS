@@ -227,15 +227,15 @@ SteamUser.prototype.idlingCards = function idlingCards() {
 	return this.curIdling && this.curIdling.indexOf(":cards") > -1;
 }
 
-SteamUser.prototype.getAccOpt = function getAccOpt(opt) {
+SteamUser.prototype.getAccOpt = function getAccOpt(opt, def) {
 	if (this.opts) {
 		if (([null, undefined]).indexOf(this.opts[opt]) <= -1) {
 			return this.opts[opt];
 		}
 	}
-	return null;
+	return def;
 }
-SteamUser.prototype.getOpt = function getOpt(opt) {
+SteamUser.prototype.getOpt = function getOpt(opt, def) {
 	if (this.opts) {
 		if (([null, undefined]).indexOf(this.opts[opt]) <= -1) {
 			return this.opts[opt];
@@ -244,7 +244,7 @@ SteamUser.prototype.getOpt = function getOpt(opt) {
 	if (([null, undefined]).indexOf(settings[opt]) <= -1) {
 		return settings[opt];
 	}
-	return null;
+	return def;
 };
 SteamUser.prototype.getOptComb = function getOptComb(opt) {
 	var cur = [];
@@ -257,6 +257,23 @@ SteamUser.prototype.getOptComb = function getOptComb(opt) {
 		cur = cur.concat(settings[opt]);
 	}
 	return cur;
+}
+SteamUser.prototype.getSetting = SteamUser.prototype.getOpt;
+SteamUser.prototype.getFirstSetting = function getFirstSetting(ar, def) {
+	for (var i = 0; i < ar.length; i++) {
+		var r = this.getSetting(ar[i], null);
+		if (r !== null) {
+			return r;
+		}
+	}
+	return def;
+}
+
+SteamUser.prototype.setName = function(name) {
+	this.setPersona(SteamUser.EPersonaState[(this.isOnline ? "Online" : "Offline")], name)
+}
+SteamUser.prototype.getName = function() {
+	return this.accountInfo ? this.accountInfo.name : null;
 }
 
 SteamUser.prototype.getPersonaStateFlags = function() {
@@ -396,11 +413,12 @@ bot.commands.getCommands = function getCommands() {
 bot.getSettings = function getSettings() {
 	return clone(settings);
 }
-bot.getSetting = function getSetting(set) {
+bot.getSetting = function getSetting(set, def) {
 	var v = settings[set];
 	if (typeof v == "object") {
 		if (v == null) {
-			return null;
+			// return null;
+			return def;
 		} else {
 			return clone(v);
 		}
@@ -411,7 +429,32 @@ bot.getSetting = function getSetting(set) {
 	} else if (typeof v == "number") {
 		return v;
 	}
+	if (v === undefined) {
+		return def;
+	}
 	return v;
+}
+bot.getFirstSetting = function getFirstSetting(ar, def) {
+	for (var i = 0; i < ar.length; i++) {
+		var r = bot.getSetting(ar[i], null);
+		if (r !== null) {
+			return r;
+		}
+	}
+	return def;
+}
+bot.compareSids = function compareSids(sid1, sid2) {
+	var s1 = sid1;
+	var s2 = sid2;
+	if (typeof s1 === "string") {
+		s1 = new SteamID(s1);
+	}
+	if (typeof s2 === "string") {
+		s2 = new SteamID(s2);
+	}
+	s1 = s1.getSteamID64();
+	s2 = s2.getSteamID64();
+	return s1 === s2;
 }
 
 bot.loadExtensions = function loadExtensions() {
@@ -999,6 +1042,9 @@ function idle(user, games) {
 	var g = games;
 	if (user.overwriteIdling) {
 		g = user.overwriteIdling;
+	}
+	if (user.playingStateBlocked) {
+		g = [];
 	}
 	user.gamesPlayed(processGamesArray(g, user));
 }
@@ -1804,6 +1850,11 @@ function login(name, pw, authcode, secret, games, online, callback, opts) {
 		}
 	});
 	
+	user.on("playingState", function(blocked, playingApp) {
+		bot.debug("info", "playingState|"+user.name+"|"+(blocked ? "true" : "false")+"|"+(playingApp ? playingApp : 0));
+		user.playingStateBlocked = blocked;
+	});
+	
 	user.prepareKill = function() {
 		killPrepared = true;
 	}
@@ -2196,6 +2247,11 @@ function doAccId(index) {
 	var f = function(err, result) {
 		if (err) {
 			onErr(err);
+			if (err == "Error: canceled") {
+				if (callback) {
+					callback();
+				}
+			}
 			return 1;
 		}
 		if (pwi) {
@@ -2455,6 +2511,11 @@ function runCommand(cmd, callback, output, via, extra) { //via: steam, cmd
 			var f = function(err, result) {
 				if (err) {
 					onErr(err);
+					if (err == "Error: canceled") {
+						if (callback) {
+							callback();
+						}
+					}
 					return 1;
 				}
 				if (pwi) {
@@ -2501,7 +2562,7 @@ function runCommand(cmd, callback, output, via, extra) { //via: steam, cmd
 			} else {
 				//logout acc
 				if (!users[acc]) {
-					throw Error(bot.prepareNameForOutput(user)+" currently isn't logged in");
+					throw Error(bot.prepareNameForOutput(acc)+" currently isn't logged in");
 				}
 				users[acc].prepareKill();
 				users[acc].logOff();
