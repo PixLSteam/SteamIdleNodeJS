@@ -221,11 +221,29 @@ prompt.start();
 
 SteamUser.prototype.initialised = function initialised() {
 	return this.loggedIn;
-}
+};
+
+//needed for the https://www.npmjs.com/package/csgo module
+(function() {
+	var gp = SteamUser.prototype.gamesPlayed;
+	SteamUser.prototype.gamesPlayed = function() {
+		var args = arguments;
+		try {
+			if (args[0].games_played) {
+				args[0] = args[0].games_played;
+			}
+		} catch(err) {
+			
+		}
+		// bot.debug("idle", "idling on "+this.name+": "+Array.prototype.join.apply(args, ", "));
+		bot.debug("idle", "idling on "+this.name+": "+Array.prototype.slice.apply(args).join(", "));
+		gp.apply(this, args);
+	};
+})();
 
 SteamUser.prototype.idlingCards = function idlingCards() {
 	return this.curIdling && this.curIdling.indexOf(":cards") > -1;
-}
+};
 
 SteamUser.prototype.getAccOpt = function getAccOpt(opt, def) {
 	if (this.opts) {
@@ -316,6 +334,7 @@ function empty(obj) {
 	}
 	return true;
 }
+isEmpty = empty;
 
 function clone(obj) {
 	var r = {};
@@ -350,6 +369,7 @@ bot.log = function log() {
 	var ar = settings.display_time ? [(new Date()).toTimeString()] : [];
 	console.log.apply(console, ar.concat(Array.prototype.slice.call(arguments)));
 }
+bot.maxErrorDepth = 16;
 bot.error = bot.log; //TODO:: implement error method later, print in red?
 bot.events = {};
 bot.events.listeners = {};
@@ -395,6 +415,21 @@ bot.events.emit = function emit(evt, args) {
 		}
 	}
 }
+bot.publicCommands = {};
+bot.publicCommands.list = {};
+bot.publicCommands.addCommand = function addCommand(cmd, func) {
+	var obj = {};
+	obj.func = func;
+	obj.cmd = cmd;
+	bot.publicCommands.list[cmd] = obj;
+}
+bot.publicCommands.removeCommand = function removeCommand(cmd) {
+	delete bot.publicCommands.list[cmd];
+}
+bot.publicCommands.getCommands = function getCommands() {
+	return clone(bot.publicCommands.list);
+}
+
 bot.commands = {};
 bot.commands.list = {};
 bot.commands.addCommand = function addCommand(cmd, func) {
@@ -409,6 +444,9 @@ bot.commands.removeCommand = function removeCommand(cmd) {
 bot.commands.getCommands = function getCommands() {
 	return clone(bot.commands.list);
 }
+
+bot.commands.pub = bot.publicCommands;
+bot.commands["public"] = bot.publicCommands;
 
 bot.getSettings = function getSettings() {
 	return clone(settings);
@@ -461,44 +499,69 @@ bot.loadExtensions = function loadExtensions() {
 	
 }
 bot.loadExtension = function loadExtension(ext) {
-	var files = [
-		"%(ext)/main.js",
-		"%(ext)/init.js",
-		"%(ext)/start.js",
-		"%(ext)/module.js",
-		"%(ext).js",
-		"%(ext)",
-		""
-	];
-	var file;
-	for (var i = 0; i < files.length; i++) {
-		var f = files[i].replace("%(ext)", ext);
-		console.log("file: "+f, fs.existsSync(f));
-		if (f.length > 0 && fs.existsSync(f)) {
-			file = f;
-			break;
+	try {
+		var files = [
+			"%(ext)/main.js",
+			"%(ext)/init.js",
+			"%(ext)/start.js",
+			"%(ext)/module.js",
+			"%(ext).js",
+			"%(ext)",
+			""
+		];
+		var file;
+		for (var i = 0; i < files.length; i++) {
+			var f = files[i].replace("%(ext)", ext);
+			console.log("file: "+f, fs.existsSync(f));
+			if (f.length > 0 && fs.existsSync(f)) {
+				file = f;
+				break;
+			}
 		}
-	}
-	if (file) {
-		var fstr = file;
-		if (fstr.substr(0, 1) !== "/") {
-			fstr = "./"+fstr;
-		}
-		var kek = require(fstr);
-		console.log(kek);
-		if (typeof kek == "function") {
-			kek();
-		} else if (typeof kek == "object" && kek) {
-			if (kek.init && typeof kek.init == "function") {
-				kek.init();
+		if (file) {
+			var fstr = file;
+			if (fstr.substr(0, 1) !== "/") {
+				fstr = "./"+fstr;
+			}
+			var kek = require(fstr);
+			console.log(kek);
+			if (typeof kek == "function") {
+				kek();
+			} else if (typeof kek == "object" && kek) {
+				if (kek.init && typeof kek.init == "function") {
+					kek.init();
+				} else {
+					//--
+				}
 			} else {
-				//--
+				
 			}
 		} else {
-			
+			console.log("No file found for ext "+ext);
 		}
-	} else {
-		console.log("No file found for ext "+ext);
+	} catch(err) {
+		var e = {};
+		e.err = err;
+		e.where = "loadExtension";
+		e.calls = [];
+		/*
+		var d = 0;
+		try {
+			var func = bot.loadExtension;
+			while (true) {
+				var f2 = func.caller;
+				d++;
+				if (d > bot.maxErrorDepth) {
+					break;
+				}
+				e.calls.push(f2.name || "Anonymous function");
+				func = f2;
+			}
+		} catch(err2) {
+			
+		} //*/
+		e.calls = bot.resolveCallStack(bot.loadExtension, true);
+		bot.registerError(e);
 	}
 }
 
@@ -514,6 +577,43 @@ bot.debug = function debug(mode) {
 		var c = 0;
 		op.apply(null, ["DEBUG|"+mode].concat(Array.prototype.slice.call(arguments).filter(function(x) {return c++ > 0;})));
 	}
+}
+
+bot.errorStack = [];
+bot.registerError = function registerError(obj = {}) {
+	if (isEmpty(obj)) {
+		return;
+	}
+	var o = clone(obj);
+	o.time = o.time || +new Date;
+	bot.errorStack.push(o);
+	// console.log(JSON.stringify(o));
+	console.log(o);
+}
+bot.resolveCallStack = function resolveCallStack(func, includeCur) {
+	if (typeof func !== "function") {
+		return [];
+	}
+	var calls = [];
+	var anon = "Anonymous function";
+	if (includeCur) {
+		calls.push(func.name || anon);
+	}
+	try {
+		var d = 0;
+		while (true) {
+			var f2 = func.caller;
+			d++;
+			if (d > bot.maxErrorDepth) {
+				break;
+			}
+			calls.push(f2.name || anon);
+			func = f2;
+		}
+	} catch(err) {
+		
+	}
+	return calls;
 }
 
 bot.prepareNameForOutput = function prepareNameForOutput(acc) {
@@ -941,7 +1041,7 @@ function processStr(str) {
 	return g;
 }
 
-function processGame(game, user) {
+function processGame(game, user, ignorePlayingState) {
 	var g = game;
 	var re = /^\d+$/;
 	var g2 = g;
@@ -949,6 +1049,9 @@ function processGame(game, user) {
 		g2 = parseInt(g2);
 	}
 	// console.log(user.name, typeof g2, g2, JSON.stringify(user.getOptComb("games_blacklist")), user.getOptComb("games_blacklist").indexOf(g2));
+	if (user && user.playingStateBlocked && !ignorePlayingState && (typeof g2) == "number") {
+		return null;
+	}
 	if (user && user.getOptComb("games_blacklist").indexOf(g2) >= 0) {
 		return null;
 	}
@@ -959,6 +1062,9 @@ function processGame(game, user) {
 			if (user.getOptComb("games_blacklist").indexOf(g2) < 0) {
 				r.push(cg[i]);
 			}
+		}
+		if (user && user.playingStateBlocked && !ignorePlayingState && (typeof g2) == "number") {
+			return null;
 		}
 		return r;
 	}
@@ -1018,20 +1124,25 @@ function processCustomMessage(msg) {
 	// return m;
 }
 
-function processGamesArray(games, user) {
+function processGamesArray(games, user, ignorePlayingState) {
 	if ((typeof games) == "string" || (typeof games) == "number") {
-		return processGame(games, user);
+		return processGame(games, user, ignorePlayingState);
 	}
 	var r = [];
 	for (var i = 0; i < games.length; i++) {
-		var g = processGame(games[i], user);
+		var g = processGame(games[i], user, ignorePlayingState);
 		if (g instanceof Array) {
 			r = r.concat(g);
 		} else {
-			r.push(g);
+			if (g) {
+				r.push(g);
+			}
 		}
 	}
 	r = r.filter(function(x){return ([null, undefined]).indexOf(x) < 0;});
+	if (user && user.playingStateBlocked && !ignorePlayingState) {
+		r = r.filter(x => (typeof x) !== "number");
+	}
 	if (user && (r.length > user.getOpt("maxGames"))) {
 		r.splice(user.getOpt("maxGames"));
 	}
@@ -1039,14 +1150,48 @@ function processGamesArray(games, user) {
 }
 
 function idle(user, games) {
+	if (user.idlingBlocked) {
+		return;
+	}
 	var g = games;
 	if (user.overwriteIdling) {
 		g = user.overwriteIdling;
 	}
-	if (user.playingStateBlocked) {
-		g = [];
+	g = g instanceof Array ? g.map(x => x) : g;
+	if (!(g instanceof Array)) {
+		g = [g];
 	}
-	user.gamesPlayed(processGamesArray(g, user));
+	if (user.playingStateBlocked) {
+		// g = [];
+		try {
+			for (var i = 0; i < (g instanceof Array ? g.length : -1); i) {
+				if (typeof g[i] === "string") {
+					bot.debug("idle","skipping "+g[i]+" @"+i);
+					i++;
+				} else {
+					var s = g.splice(i, 1);
+					bot.debug("idle", "splicing "+s[0]+" @"+i);
+				}
+			}
+		} catch(err) {
+			var e = {};
+			e.err = err;
+			e.where = "idle";
+			e.calls = [];
+			bot.registerError(e);
+		}
+	}
+	bot.debug("idle", user.name+": "+g.length+" game(s) | "+g.join(", "));
+	try {
+		user.gamesPlayed(processGamesArray(g, user));
+	} catch(err) {
+		var e = {};
+		e.err = err;
+		e.where = "processGamesArray | gamesPlayed";
+		e.calls = [];
+		bot.registerError(e);
+	}
+	bot.debug("idle", "post gamesPlayed");
 }
 
 bot.idle = idle;
@@ -1903,7 +2048,7 @@ function login(name, pw, authcode, secret, games, online, callback, opts) {
 		msgsSent[user.name][sid.getSteamID64()] = (new Date()).getTime();
 	});
 	
-	user.on("friendMessage", function(sid, msg) {
+	user.on("friendMessage", function onFriendMessageHandler(sid, msg) {
 		if (!user.steamID) {
 			bot.error("Message received on account without steam id - "+bot.prepareNameForOutput(user.name));
 			return;
@@ -1930,7 +2075,16 @@ function login(name, pw, authcode, secret, games, online, callback, opts) {
 		}
 		// bot.debug("cmdAuth", typeof wl, wl, typeof sid, sid, authorized);
 		var publicCommandExecuted = false;
-		var r = checkForPublicCommand(sid, msg, user, name, authorized);
+		var r;
+		try {
+			r = checkForPublicCommand(sid, msg, user, name, authorized);
+		} catch(err) {
+			var e = {};
+			e.err = err;
+			e.where = "checkForPublicCommand";
+			e.calls = bot.resolveCallStack(onFriendMessageHandler, true);
+			bot.registerError(e);
+		}
 		if (r) {
 			publicCommandExecuted = true;
 		}
@@ -2115,7 +2269,8 @@ settings = {
 	fakeCSInterval: 2,
 	alias_enable: true,
 	alias_casesensitive: false,
-	namechange_instant: true
+	namechange_instant: true,
+	mckay_anonstats_optout: false //automatically opt out of https://github.com/DoctorMcKay/node-stats-reporter
 };
 function loadSettings(display_output) {
 	try {
@@ -2288,7 +2443,18 @@ bot.emulateCommand = function emulateCommand(cmd, opt = {}) {
 	var cb = function() {
 		//do nothing?
 	}
-	runCommand(p, cb, f, opt["via"] || "emulation", {});
+	try {
+		runCommand(p, cb, f, opt["via"] || "emulation", {});
+	} catch(err) {
+		//register error
+		var e = {};
+		e.err = err;
+		e.where = "runCommand";
+		// e.calls = ["emulateCommand"];
+		// e.calls = e.calls.concat(bot.resolveCallStack(bot.emulateCommand, true));
+		e.calls = bot.resolveCallStack(bot.emulateCommand, true);
+		bot.registerError(e);
+	}
 	return {
 		log: log
 	};
@@ -2319,6 +2485,7 @@ function openCMD() {
 			// runCommand(p, next, console.log, "cmd");
 			runCommand(p, next, getDefaultOutput(), "cmd");
 		} catch(err) {
+			//register error
 			console.log("Error running command: "+err);
 			next();
 		}
@@ -3177,7 +3344,7 @@ function runCommand(cmd, callback, output, via, extra) { //via: steam, cmd
 					c++;
 					u[i].curIdling = games;
 					idle(u[i], u[i].curIdling);
-					var g2 = processGamesArray(games, u[i]);
+					var g2 = processGamesArray(games, u[i], true);
 					var len = (g2 instanceof Array ? g2.length : 1);
 					if (games.length > 0 && games[0] === ":cards") {
 						len = "cards";
@@ -3936,7 +4103,8 @@ function runCommand(cmd, callback, output, via, extra) { //via: steam, cmd
 				try {
 					extCmds[i]["func"](cmd, op, via, extra);
 				} catch(err) {
-					
+					op("Error while executing command, check console for details");
+					console.log(err);
 				}
 			}
 		}
@@ -4194,11 +4362,56 @@ function checkForPublicCommand(sid, msg, user, name, authed) {
 			return true;
 		}
 	}
+	var extCmdExec = false;
+	var extCmds = bot.commands["public"].getCommands();
+	for (var i in extCmds) {
+		if (!extCmds.hasOwnProperty(i)) {
+			continue;
+		}
+		if (cmd[0] == i) {
+			// var args = arguments.slice();
+			var args = Array.prototype.slice.call(arguments);
+			args.push(cmd);
+			extCmdExec = true;
+			if (typeof extCmds[i]["func"] == "function") {
+				try {
+					extCmds[i]["func"].apply(extCmds[i], args);
+				} catch(err) {
+					//register error?
+					op("Error while executing command, check console for details");
+					console.log(err);
+				}
+			}
+		}
+	}
+	if (extCmdExec) {
+		return true;
+	}
 }
 
-if (settings["tick_delay"] > 0) {
-	tickHandle = setInterval(tick, (settings["tick_delay"] || 10) * 1000);
+bot.settingsUpdated = function settingsUpdated() { //TODO: provide old settings obj, reset tick interval ONLY IF DELAY CHANGED
+	mcKayStatsSettings();
+	
+	// bot.events.emit(); //emit statsUpdated event
 }
+
+function mcKayStatsSettings() {
+	global._mckay_statistics_opt_out = bot.getSetting("mckay_anonstats_optout") ? true : false;
+}
+
+bot.settingsUpdated();
+
+function startTickInterval() {
+	var td = settings["tick_delay"];
+	if (td <= 0) {
+		return 0;
+	}
+	return setInterval(tick, (td || 10) * 1000); //TODO: upgrade to bot.getSetting
+}
+
+// if (settings["tick_delay"] > 0) {
+tickHandle = startTickInterval();
+// }
 
 // console.log(getDefaultReplaceObject(), getTimeReplaceObject(), combineObjects([getDefaultReplaceObject(), getTimeReplaceObject()]));
 // combineObjects([getDefaultReplaceObject(), getTimeReplaceObject()]);
