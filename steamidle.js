@@ -448,8 +448,20 @@ bot.commands.getCommands = function getCommands() {
 bot.commands.pub = bot.publicCommands;
 bot.commands["public"] = bot.publicCommands;
 
+bot.isValue = function isValue(v) {
+	return ([null, undefined]).indexOf(v) < 0;
+}
+
 bot.getSettings = function getSettings() {
 	return clone(settings);
+}
+bot.setSettingDefault = function setSetting(set, def) {
+	if (!bot.isValue(bot.getSetting(set, null))) {
+		bot.setSetting(set, def);
+	}
+}
+bot.setSetting = function setSetting(set, v) {
+	bot.settings[set] = v;
 }
 bot.getSetting = function getSetting(set, def) {
 	var v = settings[set];
@@ -2264,9 +2276,6 @@ settings = {
 	steamcmd_autoauth: true, //whether to allow admin cmds from own accounts, ignoring whitelist for them
 	cardIdleNoOwnershipCheck: false,
 	enableAdvancedAccountSelection: true,
-	reportBotInterval: 2, //seconds
-	reportBotRetries: 4,
-	fakeCSInterval: 2,
 	alias_enable: true,
 	alias_casesensitive: false,
 	namechange_instant: true,
