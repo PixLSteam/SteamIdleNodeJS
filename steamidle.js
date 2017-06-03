@@ -461,7 +461,7 @@ bot.setSettingDefault = function setSetting(set, def) {
 	}
 }
 bot.setSetting = function setSetting(set, v) {
-	bot.settings[set] = v;
+	settings[set] = v;
 }
 bot.getSetting = function getSetting(set, def) {
 	var v = settings[set];
@@ -2134,22 +2134,60 @@ function login(name, pw, authcode, secret, games, online, callback, opts) {
 		// console.log("Checking redirection", user.redirectTo, sid);
 		// console.log("matching redirectTo");
 		// bot.debug("redirect", typeof user.redirectTo, user.redirectTo, msg);
-		if (user.redirectTo && !publicCommandExecuted && !privateCommandExecuted && msg.substr(0, 1) != "!" && user.steamID !== user.redirectTo && user.steamID.getSteamID64() !== user.redirectTo && !sidMatch(user.redirectTo, sid, (typeof user.redirectTo) !== "string") && !sidMatch(userIds, sid)) {
-			user.getPersonas([sid], function(personas) {
-				
-				var sid64 = sidToSID64(sid);
-				// console.log(user.redirectTo, personas, personas[sid64]);
-				try {
-					var rmsg = "Message from "+((personas[sid64] || {})["player_name"] || "Unknown")+" ["+sid64+"]: "+msg;
-					if ((["console"]).includes(user.redirectTo)) {
-						bot.log(rmsg);
-					} else {
-						user.chatMessage(user.redirectTo, rmsg);
+		if (true) {
+			if (user.redirectTo && !publicCommandExecuted && !privateCommandExecuted && msg.substr(0, 1) != "!" && user.steamID !== user.redirectTo && user.steamID.getSteamID64() !== user.redirectTo && !sidMatch(user.redirectTo, sid, (typeof user.redirectTo) !== "string") && !sidMatch(userIds, sid)) {
+				user.getPersonas([sid], function(personas) {
+					
+					var sid64 = sidToSID64(sid);
+					// console.log(user.redirectTo, personas, personas[sid64]);
+					try {
+						var rmsg = "Message from "+((personas[sid64] || {})["player_name"] || "Unknown")+" ["+sid64+"]: "+msg;
+						if ((["console"]).includes(user.redirectTo)) {
+							bot.log(rmsg);
+						} else {
+							user.chatMessage(user.redirectTo, rmsg);
+						}
+					} catch(err) {
+						//printing the error message will spam the console when misconfiguring the redirection, so we'll just ignore it (subject to change)
 					}
-				} catch(err) {
-					//printing the error message will spam the console when misconfiguring the redirection, so we'll just ignore it (subject to change)
+				});
+			}
+		} else {
+			if (!publicCommandExecuted && !privateCommandExecuted && msg.substr(0, 1) != "!" && !sidMatch(userIds, sid)) {
+				var redTo = user.redirectTo;
+				if (!(redTo instanceof Array)) {
+					redTo = [redTo];
 				}
-			});
+				redTo = redTo.filter(x => {
+					return x && user.steamID !== x && user.steamID.getSteamID64() !== x && !sidMatch(x, sid, (typeof x) !== "string");
+				});
+				if (redTo.length > 0) {
+					user.getPersonas([sid], function(personas) {
+						
+						var sid64 = sidToSID64(sid);
+						// console.log(user.redirectTo, personas, personas[sid64]);
+						try {
+							var rmsg = "Message from "+((personas[sid64] || {})["player_name"] || "Unknown")+" ["+sid64+"]: "+msg;
+							// if ((["console"]).includes(user.redirectTo)) {
+								// bot.log(rmsg);
+							// } else {
+								// user.chatMessage(user.redirectTo, rmsg);
+							// }
+							for (var i = 0; i < redTo.length; i++) {
+								if ((["console"]).includes(redTo[i])) {
+									bot.log(rmsg);
+								} else if ((["buffer"]).includes(redTo[i])) {
+									//TODO: implement msg buffer
+								} else {
+									user.chatMessage(redTo[i], rmsg);
+								}
+							}
+						} catch(err) {
+							//printing the error message will spam the console when misconfiguring the redirection, so we'll just ignore it (subject to change)
+						}
+					});
+				}
+			}
 		}
 		if (!afkMsgsSent[user.name]) {
 			afkMsgsSent[user.name] = {};
