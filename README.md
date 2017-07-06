@@ -19,6 +19,7 @@ Changelog (not really updated) & (possible) upcoming features:
 - [ ] Option to keep login key
 - [ ] Option to use the secret to automatically generate authentication codes
 - [ ] Console parameters to specify Account Config File
+- [ ] package.json to simply allow usage of `npm install`
 
 Look at the commit history for a "full" changelog
 
