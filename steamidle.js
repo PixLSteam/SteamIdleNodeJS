@@ -8,6 +8,13 @@ try {
 	
 }
 
+var mysql;
+try {
+	mysql = require("mysql2");
+} catch(e) {
+	
+}
+
 Date.prototype.myTimeString = Date.prototype.toTimeString;
 
 var settings = {};
@@ -489,6 +496,196 @@ bot.log = function log() {
 }
 bot.maxErrorDepth = 16;
 bot.error = bot.log; //TODO:: implement error method later, print in red?
+bot.mysql = {}
+bot.sql = bot.mysql;
+bot.mysql.module = mysql;
+bot.mysql.available = function available() {
+	return bot.mysql.module ? true : false;
+}
+bot.mysql.createConnection = function createConnection() {
+	if (!bot.mysql.available()) {
+		return false;
+	}
+	var connH = {};
+	var conn = bot.mysql._createConnection.apply(bot.mysql, ([connH]).concat(Array.prototype.slice.apply(arguments)));
+	connH.conn = conn;
+	return connH;
+}
+bot.mysql._createConnection = function _createConnection(connH) {
+	var args = Array.prototype.slice.apply(arguments);
+	if (!bot.mysql.available()) {
+		return false;
+	}
+	var queries = {
+		execute: [],
+		query: []
+	};
+	var conn;
+	try {
+		conn = bot.mysql.module.createConnection.apply(bot.mysql.module, args.concat().splice(1));
+	} catch(err) {
+		conn = _createConnection(connH); //?
+	}
+	// connH.conn = conn;
+	conn.on("error", function(err) {
+		if (err && ((["PROTOCOL_CONNECTION_LOST"]).indexOf(err.code) > -1)) {
+			//initiate reconnection
+			bot.debug("sql", "lost connection, trying to reconnect...");
+			var conn2 = bot.mysql._createConnection.apply(bot.mysql, args);
+			connH.conn = conn2;
+			for (var i = 0; i < queries.execute.length; i++) {
+				var q = queries.execute[i];
+				if (!q) {
+					continue;
+				}
+				connH.execute.apply(conn2, q.origArgs);
+			}
+			for (var i = 0; i < queries.query.length; i++) {
+				var q = queries.query[i];
+				if (!q) {
+					continue;
+				}
+				connH.query.apply(conn2, q.origArgs);
+			}
+		}
+	});
+	var funcs = {};
+	funcs.execute = conn.execute;
+	connH.execute = function execute() {
+		var origArgs = Array.prototype.slice.apply(arguments);
+		var newArgs = Array.prototype.slice.apply(arguments);
+		var cbi = -1;
+		for (var i = 0; i < newArgs.length; i++) {
+			if (typeof newArgs[i] === "function") {
+				cbi = i;
+				break;
+			}
+		}
+		var dataObj = {
+			origArgs: origArgs,
+			args: Array.prototype.slice.apply(arguments)
+		};
+		if (cbi >= 0) {
+			var f_r = function() {
+				var rmd = false;
+				for (var i = 0; i < queries.execute.length; i++) {
+					if (queries.execute[i] === dataObj) {
+						bot.debug("sql", "removing index "+i);
+						queries.execute.splice(i, 1);
+						rmd = true;
+						break;
+					}
+				}
+				if (!rmd) {
+					bot.debug("sql", "couldn't remove any query entries");
+				}
+			}
+			var f_o = newArgs[cbi];
+			var f = function(err, results) {
+				if (err) {
+					if (err.fatal) {
+						return; //let the error event reconnect + requeue
+					}
+					if ((["PROTOCOL_CONNECTION_LOST"]).indexOf(err.code) > -1 && !err.fatal) {
+						//initiate reconnection (no? should be handled by error event)
+					} else {
+						f_r();
+						return f_o.apply(null, arguments);
+					}
+				} else {
+					f_r();
+					f_o.apply(null, arguments);
+				}
+			}
+			newArgs[cbi] = f;
+			queries.execute.push(dataObj); //in this if-block to prevent requerying after reconnecting when there was no callback to be modified
+		}
+		funcs.execute.apply(conn, newArgs);
+	};
+	funcs.query = conn.query;
+	connH.query = function query() {
+		var origArgs = Array.prototype.slice.apply(arguments);
+		var newArgs = Array.prototype.slice.apply(arguments);
+		var cbi = -1;
+		for (var i = 0; i < newArgs.length; i++) {
+			if (typeof newArgs[i] === "function") {
+				cbi = i;
+				break;
+			}
+		}
+		var dataObj = {
+			origArgs: origArgs,
+			args: Array.prototype.slice.apply(arguments)
+		};
+		if (cbi >= 0) {
+			var f_r = function() {
+				var rmd = false;
+				for (var i = 0; i < queries.query.length; i++) {
+					if (queries.query[i] === dataObj) {
+						bot.debug("sql", "removing index "+i);
+						queries.query.splice(i, 1);
+						rmd = true;
+						break;
+					}
+				}
+				if (!rmd) {
+					bot.debug("sql", "couldn't remove any query entries");
+				}
+			}
+			var f_o = newArgs[cbi];
+			var f = function(err, results) {
+				if (err) {
+					if (err.fatal) {
+						return; //let the error event reconnect + requeue
+					}
+					if ((["PROTOCOL_CONNECTION_LOST"]).indexOf(err.code) > -1 && !err.fatal) {
+						//initiate reconnection (no? should be handled by error event)
+					} else {
+						f_r();
+						return f_o.apply(null, arguments);
+					}
+				} else {
+					f_r();
+					f_o.apply(null, arguments);
+				}
+			}
+			newArgs[cbi] = f;
+			queries.query.push(dataObj);
+		}
+		funcs.query.apply(conn, newArgs);
+	};
+	return conn;
+}
+
+/*
+var sqlConn = bot.mysql.createConnection({
+	host: "127.0.0.1",
+	user: "root",
+	password: "*****"
+});
+//*/
+function dateString() {
+	var d = new Date();
+	var dd = x => x < 10 ? "0" + x : "" + x;
+	return d.getFullYear()+"-"+(dd(d.getMonth()+1))+"-"+dd(d.getDate())+" "+dd(d.getHours())+":"+dd(d.getMinutes())+":"+dd(d.getSeconds());
+}
+/*
+var sqlsess = Math.floor(Math.random() * Math.pow(10, 9));
+sqlConn.query("USE sijs", function(err, results) {
+	var ds = dateString();
+	sqlConn.execute("INSERT INTO connections (time) VALUES ('"+(ds)+"')", function(err, results) {
+		if (err) {
+			console.log("Error while inserting connection log: ", err);
+		}
+		setInterval(function() {
+			sqlConn.execute("INSERT INTO pings (session, time) VALUES ('"+sqlsess+"', '"+dateString()+"')", function(err, results) {
+				//
+			});
+		}, 60 * 1000);
+	});
+});
+//*/
+
 bot.events = {};
 bot.events.listeners = {};
 bot.events.addListener = function addListener(evt, id, func) {
@@ -731,6 +928,28 @@ bot.util.string.compare = function compare(str1, str2, opt) {
 	r = r / minL;
 	return r * maxR;
 };
+
+bot.util.json = {};
+bot.util.json.stringify = function stringify(obj, pretty) {
+	var recurTable = {};
+	var s = 0;
+	if (pretty) {
+		s = 1;
+	}
+	if (typeof pretty === "number" && pretty > 0) {
+		s = Math.floor(pretty);
+	}
+	if (typeof pretty === "string") {
+		s = pretty;
+	}
+	return JSON.stringify(obj, function(k, v) {
+		if (recurTable[v] && typeof v === "object") {
+			return "[Circular reference]";
+		}
+		recurTable[v] = true;
+		return v;
+	}, s).replace(/\u2028/g, '\\u2028').replace(/\u2029/g, '\\u2029');
+}
 
 bot.addAdminHelp = function(cmd, h) {
 	bot.admin.help[cmd] = cloneRecur(h);
@@ -1625,6 +1844,7 @@ function checkFriendRequest(user, fr) {
 				for (var i = 0; i < acm.length; i++) {
 					user.chatMessage(fr, acm[i].replaceMultiple(combineObjects([getDefaultReplaceObject(), getTimeReplaceObject(), {"%n": name}])));
 				}
+				user.setNickname(fr, "Automatically accepted as "+name+(bot.formatDate ? " at "+bot.formatDate() : ""));
 				delete friendRequests[user.name][fr];
 			});
 			// user.chatMessage(fr, "Hey there! You got accepted by the bot.");
@@ -1988,11 +2208,23 @@ function cardCheck(user, callback, keepLastCheck) {
 			}
 		});
 	}
-	if (bot.getSetting("cardsWebLogOnEveryTime")) {
-		user.once("webSession", f);
-		user.webLogOn();
+	var f2 = function() {
+		user.hasLoggedOnListener = false;
+		if (bot.getSetting("cardsWebLogOnEveryTime")) {
+			user.once("webSession", f);
+			user.webLogOn();
+		} else {
+			f(user.sessionID, user.cookies);
+		}
+	}
+	if (user.hasLoggedOnListener) {
+		return;
+	}
+	if (!user.steamID) {
+		user.once("loggedOn", f2);
+		user.hasLoggedOnListener = true;
 	} else {
-		f(user.sessionID, user.cookies);
+		f2();
 	}
 }
 
@@ -3980,7 +4212,7 @@ function runCommand(cmd, callback, output, via, extra) { //via: steam, cmd
 		}
 	}
 	if (cmd[0] == "wallet") {
-		var acc = cmd[1];
+		var acc = bot.aliasToAcc(cmd[1]);
 		if (!acc) {
 			var total = {};
 			for (var i in users) {
@@ -4948,6 +5180,18 @@ console.log = function log() {
 	cl.apply(console, arguments);
 };
 
+bot.formatDate = function formatDate(date) {
+	var d = date || new Date();
+	function dd(n) {
+		if (Number(n) < 10) {
+			return "0" + n;
+		}
+		return "" + n;
+	}
+	var ds = (d.getFullYear() + "-" + dd(d.getMonth() + 1) + "-" + dd(d.getDate())+" "+dd(d.getHours())+":"+dd(d.getMinutes())+":"+dd(d.getSeconds()));
+	return ds;
+}
+
 timing.stop();
 if (process.argv.includes("timing")) {
 	timing.printDetails();
@@ -4974,6 +5218,9 @@ process.on("uncaughtException", function(err) {
 	}
 	var errs = (true ? (d.getFullYear() + "-" + dd(d.getMonth() + 1) + "-" + dd(d.getDate())+" "+dd(d.getHours())+":"+dd(d.getMinutes())+":"+dd(d.getSeconds())+" | ") : "")+err.toString()+"\n";
 	errs += err.stack || "";
+	if (err.stack) {
+		errs += "\n";
+	}
 	try {
 		fs.writeFileSync("./error.log", errs, {flag: "a"});
 		console.log("Uncaught exception. Check error.log for details.");
