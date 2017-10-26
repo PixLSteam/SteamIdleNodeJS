@@ -1,0 +1,39 @@
+{
+  "name": "steamidlejs",
+  "version": "0.0.1",
+  "description": "Steambot with advanced features",
+  "main": "steamidle.js",
+  "scripts": {
+    "test": "node steamidle.js"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/PixLSteam/SteamIdleNodeJS/"
+  },
+  "keywords": [
+    "steam",
+	"bot"
+  ],
+  "bugs": "https://github.com/PixLSteam/SteamIdleNodeJS/issues",
+  "author": "PixL",
+  "license": "ISC",
+  "dependencies": {
+    "steam-user": "latest",
+	"prompt": "latest",
+	"steamcommunity": "latest",
+	"steamid": "latest"
+  },
+  "optionalDependencies": {
+    "cheerio": "latest",
+	"request": "latest",
+	"xmlhttprequest": "latest",
+	"mysql2": "latest",
+	"js-md5": "latest",
+	"nodejs-aes256": "latest",
+	"mime-types": "latest",
+	"qs": "latest",
+	"express": "latest"
+	"socket.io": "latest",
+	"steam": "latest"
+  }
+}
