@@ -16,15 +16,14 @@ Changelog (not really updated) & (possible) upcoming features:
 - [x] In-App command line to control idling
 - [x] Clock (":%H:%M")
 - [x] Multiple Accounts
+- [x] package.json to simply allow usage of `npm install`
 - [ ] Option to keep login key
 - [ ] Option to use the secret to automatically generate authentication codes
-- [ ] Console parameters to specify Account Config File
-- [ ] package.json to simply allow usage of `npm install`
 
 Look at the commit history for a "full" changelog
 
 I'm currently not working on the upcoming features listed above, because I personally think they aren't that important.
-Contact me if you want to suggest a feature or to report a bug!
+Use the issue tracker for feature suggestions or bug reports.
 
 Installation:
 * Download the steamidle.js
