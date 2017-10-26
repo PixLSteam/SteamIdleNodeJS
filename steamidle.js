@@ -1112,6 +1112,35 @@ bot.debug = function debug(mode) {
 	}
 };
 
+var loginKeyFile = "idle_login_keys.json";
+bot.loginKeys = {};
+bot.hasLoginKey = function hasLoginKey(acc) {
+	return bot.loginKeys[acc] ? true : false;
+}
+bot.getLoginKey = function getLoginKey(acc) {
+	return bot.loginKeys[acc];
+}
+bot.setLoginKey = function setLoginKey(acc, key) {
+	bot.loginKeys[acc] = key;
+	bot.saveLoginKeys();
+}
+bot.saveLoginKeys = function saveLoginKeys() {
+	var str = JSON.stringify(bot.loginKeys);
+	try {
+		fs.writeFileSync(loginKeyFile, str);
+	} catch(err) {
+		console.log("Error while writing login keys to file");
+	}
+}
+bot.loadLoginKeys = function loadLoginKeys() {
+	try {
+		var str = fs.readFileSync(loginKeyFile);
+		bot.loginKeys = JSON.parse(str);
+	} catch(err) {
+		//
+	}
+}
+
 bot.errorStack = [];
 bot.registerError = function registerError(obj = {}) {
 	try {
@@ -2547,10 +2576,19 @@ function login(name, pw, authcode, secret, games, online, callback, opts) {
 		console.log("get code now...");
 	});
 	
-	user.logOn({
+	var logOnObj = {
 		accountName: name,
-		password: pw
-	});
+		password: (opts.keep_login && bot.hasLoginKey(name)) ? null : pw
+	};
+	
+	if (opts.keep_login) {
+		logOnObj.rememberPassword = true;
+		if (bot.hasLoginKey(name)) {
+			logOnObj.loginKey = bot.getLoginKey(name);
+		}
+	}
+	
+	user.logOn(logOnObj);
 	
 	var loggedOn = function() {
 		user.name = name;
@@ -2609,7 +2647,7 @@ function login(name, pw, authcode, secret, games, online, callback, opts) {
 	});
 	
 	user.on("loginKey", function(key) {
-		
+		bot.setLoginKey(name, key);
 	});
 	
 	user.on("newItems", function(count) {
@@ -2823,7 +2861,7 @@ function onErr(err) {
 //['online']: whether to be displayed as online
 //['games']: array containing game ids
 //['secret']: secret for generating auth codes [NOT TESTED, CURRENTLY DISABLED]
-//['keep_login']: keep a login key [FUTURE VERSION, NOT RECOMMENDED]
+//['keep_login']: keep a login key [NOT RECOMMENDED, NOT FULLY TESTED]
 var pws = {};
 var games = [730];
 var settingsfile = "idleset.json";
@@ -3109,6 +3147,7 @@ function doAccId(index) {
 	if (pwi == undefined) {
 		pwi = null;
 	}
+	var d = accs[i];
 	var secret = accs[i]["secret"];
 	var games = gamesVarToArray(accs[i]["games"]);
 	var online = accs[i]["online"];
@@ -3127,8 +3166,8 @@ function doAccId(index) {
 		}
 		login(name, result.password, authcode, secret, games, online, function() {doAccId(index + 1);}, accGetOpts(i));
 	}
-	if ((pwi && pws[pwi]) || d["password"]) {
-		console.log("Found existing password for "+bot.prepareNameForOutput(name));
+	if ((pwi && pws[pwi]) || d["password"] || (accGetOpts(i).keep_login && bot.hasLoginKey(i))) {
+		console.log("Found existing login data for "+bot.prepareNameForOutput(name));
 		f(0, {password: (pwi && pws[pwi]) ? pws[pwi] : d["password"]});
 	} else {
 		console.log("Requesting password for "+bot.prepareNameForOutput(name));
@@ -3407,8 +3446,8 @@ function runCommand(cmd, callback, output, via, extra) { //via: steam, cmd
 				}
 				login(name, result.password, authcode, secret, games, online, callback, accGetOpts(acc));
 			}
-			if ((pwi && pws[pwi]) || d["password"]) {
-				op("Found existing password for "+bot.prepareNameForOutput(name));
+			if ((pwi && pws[pwi]) || d["password"] || (accGetOpts(name).keep_login && bot.hasLoginKey(name))) {
+				op("Found existing login data for "+bot.prepareNameForOutput(name));
 				f(0, {password: (pwi && pws[pwi]) ? pws[pwi] : d["password"]});
 			} else {
 				op("Requesting password for "+bot.prepareNameForOutput(name));
@@ -5153,6 +5192,8 @@ function startTickInterval() {
 	}
 	return setInterval(tick, (td || 10) * 1000); //TODO: upgrade to bot.getSetting
 }
+
+bot.loadLoginKeys();
 
 // if (settings["tick_delay"] > 0) {
 tickHandle = startTickInterval();
