@@ -1017,10 +1017,18 @@ bot.compareSids = function compareSids(sid1, sid2) {
 	return s1 === s2;
 };
 
+bot.ext = {};
+bot.ext.list = {};
+bot.ext.isLoaded = function isLoaded(ext) {
+	return bot.ext.list[ext] ? true : false;
+}
 bot.loadExtensions = function loadExtensions() {
 	
 };
-bot.loadExtension = function loadExtension(ext) {
+bot.loadExtension = function loadExtension(ext, op) {
+	if (bot.ext.isLoaded(ext)) {
+		return op && typeof op == "function" && op("Extension already loaded");
+	}
 	try {
 		var files = [
 			"%(ext)/main.js",
@@ -1045,8 +1053,11 @@ bot.loadExtension = function loadExtension(ext) {
 			if (fstr.substr(0, 1) !== "/") {
 				fstr = "./"+fstr;
 			}
+			var eobj = {};
 			var kek = require(fstr);
 			console.log(kek);
+			eobj.ret = kek;
+			bot.ext.list[ext] = eobj;
 			if (typeof kek == "function") {
 				kek();
 			} else if (typeof kek == "object" && kek) {
@@ -4423,7 +4434,7 @@ function runCommand(cmd, callback, output, via, extra) { //via: steam, cmd
 			if (!ext) {
 				throw Error("No extension provided");
 			}
-			bot.loadExtension(ext);
+			bot.loadExtension(ext, op);
 		} catch(err) {
 			op("An error occured: "+err);
 		}
