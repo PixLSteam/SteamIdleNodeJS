@@ -32,7 +32,7 @@
 	"nodejs-aes256": "latest",
 	"mime-types": "latest",
 	"qs": "latest",
-	"express": "latest"
+	"express": "latest",
 	"socket.io": "latest",
 	"steam": "latest"
   }
