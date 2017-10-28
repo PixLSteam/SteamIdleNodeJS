@@ -4200,7 +4200,8 @@ function runCommand(cmd, callback, output, via, extra) { //via: steam, cmd
 				}
 				user.addFriend(frid, function(err, name) {
 					if (err) {
-						throw Error(err);
+						// throw Error(err);
+						op(err);
 						return;
 					}
 					op("Successfully added "+name+" ["+frid+"]");
