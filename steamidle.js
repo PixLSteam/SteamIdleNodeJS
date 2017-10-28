@@ -110,8 +110,8 @@ if (updateCI >= 0) {
 					try {
 						if (isMain) {
 							fs.writeFileSync(currentMainFilePath + ".backup", fs.readFileSync(currentMainFilePath));
+							console.log("Successfully created a backup of "+currentMainFile);
 						}
-						console.log("Successfully created a backup of "+currentMainFile);
 						fs.writeFileSync(absFilePath, xhr1.responseText);
 						succF += 1;
 						console.log("Successfully updated '"+i+"'");
@@ -1644,6 +1644,9 @@ function processGame(game, user, ignorePlayingState) {
 	}
 	if (typeof g2 === "string" && bot.game_presets[g2] instanceof Array) {
 		return bot.game_presets[g2].concat();
+	}
+	if (typeof g2 === "string" && (["number", "string"]).indexOf(typeof bot.game_presets[g2]) > -1) {
+		return bot.game_presets[g2];
 	}
 	return processStr(g);
 	// if ((typeof g) == "string" && g.substr(0, 1) == ":") { //clock
@@ -4201,11 +4204,12 @@ function runCommand(cmd, callback, output, via, extra) { //via: steam, cmd
 						return;
 					}
 					op("Successfully added "+name+" ["+frid+"]");
+					/* //commenting out to fix double input
 					if (callback) {
 						return callback();
 					} else {
 						return;
-					}
+					} //*/
 				});
 			}
 		} catch(err) {
