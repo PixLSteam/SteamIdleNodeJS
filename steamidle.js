@@ -5288,7 +5288,8 @@ console.log = function log() {
 			return "" + n;
 		}
 		var l = true;
-		l = false;
+		// l = false;
+		l = bot.getSetting("debug_logging");
 		if (l) {
 			var d = new Date();
 			var ds = (d.getFullYear() + "-" + dd(d.getMonth() + 1) + "-" + dd(d.getDate())+" "+dd(d.getHours())+":"+dd(d.getMinutes())+":"+dd(d.getSeconds()));
