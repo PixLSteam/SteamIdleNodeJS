@@ -298,7 +298,62 @@ SteamUser.prototype.hasIdleTimeout = function hasIdleTimeout() {
 		}
 	}
 	return false;
+};
+
+SteamUser.prototype.getOwnedAppsAsObject = function getOwnedAppsAsObject() {
+	const user = this;
+	if (!user.picsCache.packages) {
+		throw new Error("No data in PICS package cache yet");
+	}
+	var pkgs = user.getOwnedPackages();
+	var appidObj = {};
+	pkgs.forEach(function(pkg) {
+		if (!user.picsCache.packages[pkg]) {
+			return;
+		}
+		pkg = user.picsCache.packages[pkg];
+		if (!pkg.packageinfo) {
+			return;
+		}
+		pkg = pkg.packageinfo;
+		if (pkg.extended && pkg.extended.expirytime && pkg.extended.expirytime <= Math.floor(Date.now() / 1000)) {
+			return;
+		}
+		(pkg.appids || []).forEach((appid) => {
+			// if (appids.indexOf(appid) === -1) {
+			// appids.push(appid);
+			// }
+			appidObj[appid] = true;
+		});
+	});
+	return appidObj;
+};
+function sortNumeric(a, b) {
+	if (a < b) {
+		return -1;
+	} else if (a > b) {
+		return 1;
+	}
+
+	return 0;
 }
+SteamUser.prototype._getOwnedApps = function _getOwnedApps(sorted=true) {
+	var appidObj = this.getOwnedAppsAsObject();
+	var appids = [];
+	for (var i in appidObj) {
+		if (!appidObj.hasOwnProperty(i) || isNaN(Number(i))) {
+			continue;
+		}
+		appids.push(Number(i));
+	}
+	if (sorted) {
+		appids.sort(sortNumeric);
+	}
+	return appids;
+};
+SteamUser.prototype._ownsApp = function _ownsApp(appid) {
+	return this.getOwnedAppsAsObject()[parseInt(appid, 10)] ? true : false;
+};
 
 bot.getMainIdleFromObject = function getMainIdleFromObject(obj) {
 	try {
@@ -307,7 +362,7 @@ bot.getMainIdleFromObject = function getMainIdleFromObject(obj) {
 		throw err;
 		return null;
 	}
-}
+};
 bot.getBackupIdleFromObject = function getBackupIdleFromObject(obj) {
 	try {
 		return obj.backup || obj.next;
@@ -315,7 +370,7 @@ bot.getBackupIdleFromObject = function getBackupIdleFromObject(obj) {
 		throw err;
 		return null;
 	}
-}
+};
 
 SteamUser.prototype.idlingCards = function idlingCards() {
 	// return this.curIdling && this.curIdling.indexOf(":cards") > -1;
@@ -1122,6 +1177,10 @@ bot.getLoginKey = function getLoginKey(acc) {
 }
 bot.setLoginKey = function setLoginKey(acc, key) {
 	bot.loginKeys[acc] = key;
+	bot.saveLoginKeys();
+}
+bot.removeLoginKey = function removeLoginKey(acc) {
+	delete bot.loginKeys[acc];
 	bot.saveLoginKeys();
 }
 bot.saveLoginKeys = function saveLoginKeys() {
@@ -2555,6 +2614,9 @@ function login(name, pw, authcode, secret, games, online, callback, opts) {
 		if (err == "Error: InvalidPassword") {
 			if (!user.loggedIn) {
 				console.log("Invalid password entered for "+bot.prepareNameForOutput(name));
+				if (opts.keep_login && bot.hasLoginKey(name)) {
+					bot.removeLoginKey(name);
+				}
 				user.logOff();
 				if (callback) {
 					callback();
