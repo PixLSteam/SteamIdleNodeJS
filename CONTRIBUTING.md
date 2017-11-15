@@ -1,5 +1,7 @@
 # Issues
 
+**Always include the branch you're using!** (experimental is the newest, while master is the most stable)
+
 - When reporting a bug, please include all relevant details (if available).
 	- Descriptive title
 	- Steps for reproduction
