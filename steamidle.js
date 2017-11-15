@@ -482,6 +482,17 @@ Array.prototype.mapTrimLeft = function() {return this.map(r => r.trimLeft());}
 Array.prototype.mapTrimRight = function() {return this.map(r => r.trimRight());}
 Array.prototype.mapLength = function() {return this.map(r => r.length);}
 
+Array.prototype.almostAvg = function() {return this.reduce((x, v) => (x + v) / 2);};
+Array.prototype.sum = function() {return this.reduce((x, v) => (x + v))};
+Array.prototype.avg = function() {return this.sum() / this.length};
+Array.prototype.avg2 = function() {
+	var c = 0;
+	return this.reduce((x, v) => {
+		c++;
+		return (c * x + v) / (c + 1);
+	});
+}
+
 function empty(obj) {
 	for (var i in obj) {
 		if (obj.hasOwnProperty(i)) {
