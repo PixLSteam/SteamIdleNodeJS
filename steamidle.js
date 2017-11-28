@@ -1,5 +1,12 @@
 var path = require("path");
 var fs = require("fs");
+var PixLDebug;
+
+try {
+	PixLDebug = require("pixl-debug-tools");
+} catch(e) {
+	
+}
 
 try {
 	var xhr = require("xmlhttprequest");
@@ -28,6 +35,10 @@ var manifestFile = "manifest.json";
 var bot = {};
 global.bot = bot;
 
+if (PixLDebug) {
+	bot.PixLDebug = PixLDebug;
+	bot.pDebug = new PixLDebug();
+}
 //now check cmd args
 
 var currentMainFilePath = process.argv[1];
@@ -538,6 +549,16 @@ function cloneRecur(obj) {
 	}
 	return f(obj);
 }
+
+bot.SteamBotExtInterface = function SteamBotExtInterface(name) {
+	Object.defineProperty(this, "name", {value: name});
+}
+bot.SteamBotExtInterface.prototype.addEventListener = function addEventListener(ev, id, func) {
+	bot.events.addListener(ev, this.name+"_"+id, func);
+};
+bot.SteamBotExtInterface.prototype.removeEventListener = function removeEventListener(ev, id) {
+	bot.events.removeListener(ev, this.name+"_"+id);
+};
 
 var tickHandle;
 
@@ -4217,12 +4238,22 @@ function runCommand(cmd, callback, output, via, extra) { //via: steam, cmd
 		if (!acc) {
 			if (via == "steam") {
 				accs = getAccs("me", via, extra);
+			} else {
+				accs = getAccs("*", via, extra);
 			}
+		} else {
+			accs = getAccs(acc, via, extra);
 		}
 		var u = bot.accsToUsers(accs);
 		for (var i = 0; i < u.length; i++) {
 			var user = u[i];
 			user.idleTimeout(user.getOpt("w2p_idledelay"));
+			op(bot.prepareNameForOutput(user.name)+" stopped idling for "+(user.getOpt("w2p_idledelay")/1000)+"s");
+		}
+		if (callback) {
+			return callback();
+		} else {
+			return true;
 		}
 	}
 	if (cmd[0] == "addfriend") {
@@ -4835,8 +4866,10 @@ function runCommand(cmd, callback, output, via, extra) { //via: steam, cmd
 		}
 		var disable = (["disable", "none", "noafk", "off"]).includes(msg);
 		var def = (["on", "default", "def"]).includes(msg);
+		var defCheck = {};
 		if (def) {
-			msg = settings["afk_defaultmsg"];
+			// msg = settings["afk_defaultmsg"];
+			msg = defCheck;
 		}
 		if ((typeof msg) !== "string" && !(msg instanceof Array)) {
 			op("There was an error setting the afk message. The message doesn't seem to be a string or array");
@@ -4844,7 +4877,7 @@ function runCommand(cmd, callback, output, via, extra) { //via: steam, cmd
 		}
 		if (!acc) {
 			for (var i in users) {
-				users[i].afkMsg = (disable ? null : msg);
+				users[i].afkMsg = (disable ? null : (msg === defCheck ? users[i].getOpt("afk_defaultmsg") : msg));
 				if (disable) {
 					op("Disabled afk message for "+bot.prepareNameForOutput(i));
 				} else {
@@ -4856,7 +4889,7 @@ function runCommand(cmd, callback, output, via, extra) { //via: steam, cmd
 				if (!users[acc]) {
 					throw Error(bot.prepareNameForOutput(acc)+" currently isn't logged in");
 				}
-				users[acc].afkMsg = (disable ? null : msg);
+				users[acc].afkMsg = (disable ? null : (msg === defCheck ? users[acc].getOpt("afk_defaultmsg") : msg));
 				if (disable) {
 					op("Disabled afk message for "+bot.prepareNameForOutput(acc));
 				} else {
