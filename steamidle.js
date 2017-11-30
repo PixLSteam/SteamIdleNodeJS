@@ -24,6 +24,13 @@ try {
 
 Date.prototype.myTimeString = Date.prototype.toTimeString;
 
+Date.prototype.toSteamDateString = function() {
+	return this.toDateString.apply(this, arguments).split(":").join(bot.inviSpace+":"+bot.inviSpace);
+}
+Date.prototype.toSteamTimeString = function() {
+	return this.toTimeString.apply(this, arguments).split(":").join(bot.inviSpace+":"+bot.inviSpace);
+}
+
 var settings = {};
 
 var rawGithubPrefix = "https://raw.githubusercontent.com/PixLSteam/SteamIdleNodeJS/";
@@ -34,6 +41,8 @@ var manifestFile = "manifest.json";
 
 var bot = {};
 global.bot = bot;
+
+bot.inviSpace = "\uFEFF";
 
 if (PixLDebug) {
 	bot.PixLDebug = PixLDebug;
@@ -5077,7 +5086,7 @@ function checkForPublicCommand(sid, msg, user, name, authed) {
 					var tim = obj["time"];
 					var desc = obj["desc"];
 					var timd = new Date(tim);
-					user.chatMessage(sid, "Alarm "+id+" at "+timd.toDateString()+" "+timd.toTimeString()+": "+desc);
+					user.chatMessage(sid, "Alarm "+id+" at "+timd.toSteamDateString()+" "+timd.toSteamTimeString()+": "+desc);
 				}
 			}
 			return true;
@@ -5101,7 +5110,7 @@ function checkForPublicCommand(sid, msg, user, name, authed) {
 						var desc = obj["desc"];
 						if (id == rid) {
 							var timd = new Date(tim);
-							user.chatMessage(sid, "Alarm "+id+" at "+timd.toDateString()+" "+timd.toTimeString()+" with description '"+desc+"' was removed");
+							user.chatMessage(sid, "Alarm "+id+" at "+timd.toSteamDateString()+" "+timd.toSteamTimeString()+" with description '"+desc+"' was removed");
 							alarms[name][sid.getSteamID64()].splice(i, 1);
 							c = true;
 							break;
@@ -5132,7 +5141,7 @@ function checkForPublicCommand(sid, msg, user, name, authed) {
 			user.chatMessage(sid, "Error adding alarm");
 		} else {
 			var aDate = new Date(r["time"]);
-			user.chatMessage(sid, "Your alarm ["+r["id"]+"] was set on " + aDate.toDateString() + " " + aDate.toTimeString());
+			user.chatMessage(sid, "Your alarm ["+r["id"]+"] was set on " + aDate.toSteamDateString() + " " + aDate.toSteamTimeString());
 		}
 		return true;
 	}
@@ -5141,12 +5150,12 @@ function checkForPublicCommand(sid, msg, user, name, authed) {
 		return true;
 	}
 	if (cmd[0] === "date") {
-		user.chatMessage(sid, "Today is "+(new Date()).toDateString());
+		user.chatMessage(sid, "Today is "+(new Date()).toSteamDateString());
 		return true;
 	}
 	if (cmd[0] === "time") {
 		var curDate = new Date();
-		var tmsg = "It's currently "+(curDate).toTimeString();
+		var tmsg = "It's currently "+(curDate).toSteamTimeString();
 		var stm = false;
 		var stmsgs = settings["time_special"];
 		for (var i = 0; i < stmsgs.length; i++) {
