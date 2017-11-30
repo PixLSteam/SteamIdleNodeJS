@@ -43,6 +43,12 @@ var bot = {};
 global.bot = bot;
 
 bot.inviSpace = "\uFEFF";
+bot.inviChars = [
+	"\uFEFF", //zero width no-break space
+	"\u2063", //invisible separator
+	"\u200B", //zero width space
+	"\u200C" //zero width non-joiner
+];
 
 if (PixLDebug) {
 	bot.PixLDebug = PixLDebug;
