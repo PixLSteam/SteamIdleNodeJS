@@ -3299,7 +3299,7 @@ function trimSpaces(str) {
 	return /^\s*((\S.*\S|\S)?)\s*$/.exec(str)[1];
 }
 bot.emulateCommand = function emulateCommand(cmd, opt = {}) {
-	var p = parseCommand(trimSpaces(result.cmd));
+	var p = parseCommand(trimSpaces(cmd));
 	var log = [];
 	var f = function() {
 		log.push(arguments);
