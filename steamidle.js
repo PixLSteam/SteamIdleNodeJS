@@ -42,6 +42,8 @@ var manifestFile = "manifest.json";
 var bot = {};
 global.bot = bot;
 
+bot.allowedExceptions = [];
+
 bot.inviSpace = "\uFEFF";
 bot.inviChars = [
 	"\uFEFF", //zero width no-break space
@@ -5336,9 +5338,9 @@ tickHandle = startTickInterval();
 // console.log(sidMatch(sid1, sid2, true));
 // process.exit();
 // return;
-
 var cl = console.log;
-console.log = function log() {
+var ce = console.error;
+const toLogFile = function toLogFile() {
 	try {
 		function dd(n) {
 			if (Number(n) < 10) {
@@ -5358,7 +5360,14 @@ console.log = function log() {
 	} catch(err) {
 		cl("Error writing to log:", err);
 	}
+};
+console.log = function log() {
+	toLogFile.apply(null, arguments);
 	cl.apply(console, arguments);
+};
+console.error = function error() {
+	toLogFile.apply(null,(["ERROR:"]).concat(Array.prototype.slice.apply(arguments)));
+	ce.apply(console, arguments);
 };
 
 bot.formatDate = function formatDate(date) {
@@ -5409,6 +5418,22 @@ process.on("uncaughtException", function(err) {
 		console.log("Uncaught exception. Error while writing to error.log");
 		console.log("Writing error:", err2);
 		console.log("Uncaught exception:", err);
+	}
+	try {
+		toLogFile.apply(null, [errs]);
+	} catch(e) {
+		
+	}
+	try {
+		for (let i = 0; i < bot.allowedExceptions.length; i++) {
+			let f = (typeof bot.allowedExceptions[i] == "function") ? bot.allowedExceptions : x => (x == bot.allowedExceptions[i]);
+			if (f(err)) {
+				console.log("Uncaught exception ignored via bot.allowedExceptions");
+				return;
+			}
+		}
+	} catch(err) {
+		
 	}
 	console.log("Exiting...");
 	process.exit(1);
