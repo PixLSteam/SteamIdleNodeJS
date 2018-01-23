@@ -1291,6 +1291,68 @@ bot.loadLoginKeys = function loadLoginKeys() {
 	}
 }
 
+bot.steam = {};
+bot.steam.personas = {};
+bot.steam._getPersona = function _getPersona(sid, cb, user) {
+	var sid64 = sid.getSteamID64();
+	console.log(user.name);
+	console.log(user.users);
+	console.log(sid64);
+	if (user && user.users && user.users[sid64] && typeof(user.users[sid64].player_name) == "string") {
+		// console.log(user.users[sid64]);
+		var n = user.users[sid64].player_name;
+		cb(null, n);
+		return n;
+	} else {
+		if (user) {
+			user.getPersonas([sid], function(err, data) {
+				var n =  (!err ? data[sid64].player_name : null);
+				if (!err && typeof n == "string") {
+					return cb(null, n);
+				} else {
+					return cb(new Error("Failed to load persona"), null);
+				}
+			});
+			return;
+		}
+		cb(new Error("Couldn't find any method of getting user persona, please provide user object"), null);
+		return null;
+	}
+};
+bot.steam.getPersona = function getPersona(sid, cb, user) {
+	var sid = (typeof sid == "string" ? new SteamID(sid) : sid);
+	var sid64 = sid.getSteamID64();
+	var _get = function() {
+		var _set = function(name) {
+			bot.steam.personas[sid64] = {last_checked: +new Date, name: name};
+		};
+		var r = bot.steam._getPersona(sid, function(err, name) {
+			if (!err && name) {
+				_set(name);
+			}
+			return cb(err, name);
+		}, user);
+		if (typeof r == "string") {
+			_set(r);
+			return r;
+		}
+	};
+	if (bot.steam.personas[sid64]) {
+		var p = bot.steam.personas[sid64];
+		var d = (+new Date)-p.last_checked;
+		if (d < bot.getSetting("personaget_maxage", 15 * 60 * 1000)) {
+			if (typeof cb == "function") {
+				cb(null, p.name);
+			}
+			return p.name;
+		} else {
+			return _get();
+		}
+	} else {
+		return _get();
+	}
+};
+
 bot.errorStack = [];
 bot.registerError = function registerError(obj = {}) {
 	try {
@@ -3014,12 +3076,19 @@ function login(name, pw, authcode, secret, games, online, callback, opts) {
 				}
 			}
 		}
+		var sendern = undefined;
+		try {
+			sendern = bot.steam.getPersona(sid, x=>x, user);
+		} catch(err) {
+			
+		}
 		bot.events.emit("steam_message", [user, {
 			sender: sid,
 			authed: authorized,
 			public_cmd: publicCommandExecuted,
 			private_cmd: privateCommandExecuted,
-			msg: msg
+			msg: msg,
+			sender_name: sendern
 		}]);
 	});
 }
@@ -4744,6 +4813,18 @@ function runCommand(cmd, callback, output, via, extra) { //via: steam, cmd
 			return callback();
 		} else {
 			return;
+		}
+	}
+	if (cmd[0] == "persona") {
+		try {
+			bot.steam.getPersona("76561198135386775", x=>x, users[Object.keys(users)[0]]);
+		} catch(err) {
+			console.log(err);
+		}
+		if (callback) {
+			return callback();
+		} else {
+			return true;
 		}
 	}
 	if (cmd[0] == "names") {
