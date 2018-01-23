@@ -1203,7 +1203,7 @@ bot.loadExtension = function loadExtension(ext, op) {
 			eobj.name = kek.name || ext;
 			eobj.author = kek.author;
 			//STOP
-			var extiface = new SteamBotExtInterface(ext, eobj);
+			var extiface = new bot.SteamBotExtInterface(ext, eobj);
 			if (typeof kek == "function") {
 				kek(extiface);
 			} else if (typeof kek == "object" && kek) {
