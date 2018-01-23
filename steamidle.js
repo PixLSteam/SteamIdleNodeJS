@@ -567,14 +567,21 @@ function cloneRecur(obj) {
 	return f(obj);
 }
 
-bot.SteamBotExtInterface = function SteamBotExtInterface(name) {
+bot.SteamBotExtInterface = function SteamBotExtInterface(name, ext) {
 	Object.defineProperty(this, "name", {value: name});
+	Object.defineProperty(this, "ext", {value: ext});
 }
 bot.SteamBotExtInterface.prototype.addEventListener = function addEventListener(ev, id, func) {
-	bot.events.addListener(ev, this.name+"_"+id, func);
+	bot.events.addListener(ev, this.getName()+"_"+id, func);
 };
 bot.SteamBotExtInterface.prototype.removeEventListener = function removeEventListener(ev, id) {
-	bot.events.removeListener(ev, this.name+"_"+id);
+	bot.events.removeListener(ev, this.getName()+"_"+id);
+};
+bot.SteamBotExtInterface.prototype.getName = function getName() {
+	if (this.ext && this.ext.name) {
+		return this.ext.name;
+	}
+	return this.name || (typeof this.ext == "string" ? this.ext : "unknown");
 };
 
 var tickHandle;
@@ -593,11 +600,11 @@ bot.emotes = {
 	wavedance: "~(˘▾˘~)",
 	tableunflip: "┬──┬ ノ( ゜-゜ノ)",
 	robodance: "╚(ಠ_ಠ)=┐"
-}
+};
 bot.log = function log() {
 	var ar = settings.display_time ? [(new Date()).toTimeString()] : [];
 	console.log.apply(console, ar.concat(Array.prototype.slice.call(arguments)));
-}
+};
 bot.maxErrorDepth = 16;
 bot.error = bot.log; //TODO:: implement error method later, print in red?
 bot.mysql = {}
@@ -605,7 +612,7 @@ bot.sql = bot.mysql;
 bot.mysql.module = mysql;
 bot.mysql.available = function available() {
 	return bot.mysql.module ? true : false;
-}
+};
 bot.mysql.createConnection = function createConnection() {
 	if (!bot.mysql.available()) {
 		return false;
@@ -614,7 +621,7 @@ bot.mysql.createConnection = function createConnection() {
 	var conn = bot.mysql._createConnection.apply(bot.mysql, ([connH]).concat(Array.prototype.slice.apply(arguments)));
 	connH.conn = conn;
 	return connH;
-}
+};
 bot.mysql._createConnection = function _createConnection(connH) {
 	var args = Array.prototype.slice.apply(arguments);
 	if (!bot.mysql.available()) {
@@ -759,7 +766,7 @@ bot.mysql._createConnection = function _createConnection(connH) {
 		funcs.query.apply(conn, newArgs);
 	};
 	return conn;
-}
+};
 
 /*
 var sqlConn = bot.mysql.createConnection({
@@ -799,7 +806,7 @@ bot.events.addListener = function addListener(evt, id, func) {
 	obj.evt = evt;
 	obj.id = id;
 	bot.events.listeners[evt][id] = obj;
-}
+};
 bot.events.removeAllListeners = function removeAllListeners(evt) {
 	if (evt) {
 		// bot.events.listeners[evt] = {};
@@ -807,11 +814,11 @@ bot.events.removeAllListeners = function removeAllListeners(evt) {
 	} else {
 		bot.events.listeners = {};
 	}
-}
+};
 bot.events.removeListener = function removeListener(evt, id) {
 	bot.events.listeners[evt] = bot.events.listeners[evt] || {};
 	delete bot.events.listeners[evt][id];
-}
+};
 bot.events.getEvents = function getEvents() {
 	var ar = [];
 	for (var i in bot.events.listeners) {
@@ -820,20 +827,43 @@ bot.events.getEvents = function getEvents() {
 		}
 	}
 	return ar;
-}
+};
 bot.events.getListeners = function getListeners(evt) {
 	return clone(bot.events.listeners[evt] || {});
-}
-bot.events.emit = function emit(evt, args) {
+};
+bot.events.emit = function emit(evt, args, opts) {
+	opts = opts || {};
 	var l = bot.events.getListeners(evt);
 	for (var i in l) {
+		if (!l.hasOwnProperty(i)) {
+			continue;
+		}
 		var obj = l[i];
 		var f = obj.func;
 		if (typeof f === "function") {
 			f.apply(null, args || []);
 		}
 	}
-}
+};
+bot.events.call = function call(evt, args, opts) { //like emit, but returns an array containing return values
+	opts = opts || {};
+	var l = bot.events.getListeners(evt);
+	var r = [];
+	for (var i in l) {
+		if (!l.hasOwnProperty(i)) {
+			continue;
+		}
+		var obj = l[i];
+		var f = obj.func;
+		if (typeof f === "function") {
+			var v = f.apply(null, args || []);
+			if (([null, undefined]).indexOf(v) < 0) {
+				r.push(v);
+			}
+		}
+	}
+	return r;
+};
 bot.publicCommands = {};
 bot.publicCommands.list = {};
 bot.publicCommands.addCommand = function addCommand(cmd, func) {
@@ -841,13 +871,13 @@ bot.publicCommands.addCommand = function addCommand(cmd, func) {
 	obj.func = func;
 	obj.cmd = cmd;
 	bot.publicCommands.list[cmd] = obj;
-}
+};
 bot.publicCommands.removeCommand = function removeCommand(cmd) {
 	delete bot.publicCommands.list[cmd];
-}
+};
 bot.publicCommands.getCommands = function getCommands() {
 	return clone(bot.publicCommands.list);
-}
+};
 
 bot.commands = {};
 bot.commands.list = {};
@@ -856,13 +886,13 @@ bot.commands.addCommand = function addCommand(cmd, func) {
 	obj.func = func;
 	obj.cmd = cmd;
 	bot.commands.list[cmd] = obj;
-}
+};
 bot.commands.removeCommand = function removeCommand(cmd) {
 	delete bot.commands.list[cmd];
-}
+};
 bot.commands.getCommands = function getCommands() {
 	return clone(bot.commands.list);
-}
+};
 
 bot.commands.pub = bot.publicCommands;
 bot.commands["public"] = bot.publicCommands;
@@ -873,10 +903,10 @@ bot.stats.device = {};
 bot.stats.device.ram = {};
 bot.stats.device.ram.getTotal = function getTotal() {
 	return os.totalmem();
-}
+};
 bot.stats.device.ram.getFree = function getFree() {
 	return os.freemem();
-}
+};
 
 bot.stats.device.cpu = {};
 bot.stats.device.cpu.getData = function getData() {
@@ -918,68 +948,68 @@ bot.stats.device.cpu.getData = function getData() {
 	r.models = models;
 	r.count = count;
 	return r;
-}
+};
 bot.stats.device.cpu.getCount = function getCount() {
 	try {
 		return bot.stats.device.cpu.getData().count;
 	} catch(err) { //TODO: report error
 		return -1;
 	}
-}
+};
 bot.stats.device.cpu.getModels = function getModels() {
 	try {
 		return bot.stats.device.cpu.getData().modelsArray;
 	} catch(err) { //TODO: report error
 		return [null];
 	}
-}
+};
 bot.stats.device.cpu.getModelsCount = function getModelsCount() {
 	try {
 		return bot.stats.device.cpu.getData().modelsArrayCount;
 	} catch(err) { //TODO: report error
 		return [null];
 	}
-}
+};
 bot.stats.device.cpu.getModel = function getModel() {
 	try {
 		return bot.stats.device.cpu.getData().modelsArray[0];
 	} catch(err) { //TODO: report error
 		return null;
 	}
-}
+};
 bot.stats.device.cpu.getTotalSpeed = function getTotalSpeed() {
 	try {
 		return bot.stats.device.cpu.getData().totalSpeed;
 	} catch(err) { //TODO: report error
 		return -1;
 	}
-}
+};
 bot.stats.device.cpu.getMinSpeed = function getMinSpeed() {
 	try {
 		return bot.stats.device.cpu.getData().minSpeed;
 	} catch(err) { //TODO: report error
 		return -1;
 	}
-}
+};
 bot.stats.device.cpu.getMaxSpeed = function getMaxSpeed() {
 	try {
 		return bot.stats.device.cpu.getData().maxSpeed;
 	} catch(err) { //TODO: report error
 		return -1;
 	}
-}
+};
 bot.stats.device.cpu.getAvgSpeed = function getAvgSpeed() {
 	try {
 		return bot.stats.device.cpu.getTotalSpeed() / bot.stats.device.cpu.getCount();
 	} catch(err) { //TODO: report error
 		return -1;
 	}
-}
+};
 
 bot.stats.device.misc = {};
 bot.stats.device.misc.getUptime = function getUptime() {
 	return os.uptime();
-}
+};
 
 bot.stats.app = {};
 
@@ -1053,11 +1083,11 @@ bot.util.json.stringify = function stringify(obj, pretty) {
 		recurTable[v] = true;
 		return v;
 	}, s).replace(/\u2028/g, '\\u2028').replace(/\u2029/g, '\\u2029');
-}
+};
 
 bot.addAdminHelp = function(cmd, h) {
 	bot.admin.help[cmd] = cloneRecur(h);
-}
+};
 
 bot.isValue = function isValue(v) {
 	return ([null, undefined]).indexOf(v) < 0;
@@ -1123,8 +1153,12 @@ bot.compareSids = function compareSids(sid1, sid2) {
 
 bot.ext = {};
 bot.ext.list = {};
+bot.ext.nameList = {};
 bot.ext.isLoaded = function isLoaded(ext) {
 	return bot.ext.list[ext] ? true : false;
+}
+bot.ext.isLoadedName = function isLoadedName(ext) {
+	return bot.ext.nameList[ext] ? true : false;
 }
 bot.loadExtensions = function loadExtensions() {
 	
@@ -1154,7 +1188,7 @@ bot.loadExtension = function loadExtension(ext, op) {
 		}
 		if (file) {
 			var fstr = file;
-			if (fstr.substr(0, 1) !== "/") {
+			if (fstr.substr(0, 1) !== "/" && fstr.substr(0, 1) !== "~") {
 				fstr = "./"+fstr;
 			}
 			var eobj = {};
@@ -1162,11 +1196,19 @@ bot.loadExtension = function loadExtension(ext, op) {
 			console.log(kek);
 			eobj.ret = kek;
 			bot.ext.list[ext] = eobj;
+			if (kek.name) {
+				bot.ext.nameList[kek.name] = eobj;
+			}
+			//START return value into ext obj getting
+			eobj.name = kek.name || ext;
+			eobj.author = kek.author;
+			//STOP
+			var extiface = new SteamBotExtInterface(ext, eobj);
 			if (typeof kek == "function") {
-				kek();
+				kek(extiface);
 			} else if (typeof kek == "object" && kek) {
 				if (kek.init && typeof kek.init == "function") {
-					kek.init();
+					kek.init(extiface);
 				} else {
 					//--
 				}
@@ -1592,6 +1634,13 @@ function getAccs(str, via, extra) {
 }
 bot.getAccs = getAccs;
 
+function getSteamID64FromDict(al, opts) {
+	if (!bot.sidDict) {
+		return al;
+	}
+};
+bot.getSteamID64FromDict = getSteamID64FromDict;
+
 bot.accsToUsers = function accsToUsers(accs) {
 	return accs.map(x => bot.users[x]).filter(x => x);
 }
@@ -1648,11 +1697,11 @@ function formatCurrency(bal, cur) {
 			if (!(["null", "undefined"]).includes(typeof cc[i])) {
 				if (typeof cc[i] === "string") {
 					if (cc[i] !== chars[i]) {
-						cc[i] == chars[i];
+						cc[i] = chars[i];
 					}
 				} else {
 					if (cc[i]["char"] !== chars[i]) {
-						cc[i]["char"] == chars[i];
+						cc[i]["char"] = chars[i];
 					}
 				}
 			}
@@ -1985,6 +2034,7 @@ function checkFriendRequest(user, fr) {
 				if (err) {
 					return;
 				}
+				bot.events.emit("steam_autoaccept", [user, fr]);
 				var acm = settings["autoaccept_msgs"] || settings["autoaccept_msg"];
 				if ((typeof acm) == "string") {
 					acm = [acm];
@@ -2546,6 +2596,7 @@ function checkAlarms() {
 							msg = msg + ": "+desc;
 						}
 						users[user].chatMessage(sid64, msg);
+						bot.events.emit("steam_publiccmd_alarmtriggered", [user, new SteamID(sid64), ualarm]);
 					}
 					tr = true;
 				}
@@ -2583,6 +2634,7 @@ function addAlarm(user, sid, str, msg) {
 	var re_total = /^([0-1]?[0-9]|2[0-4]):([0-5]?[0-9])$/;
 	var re_period = /^(([1-9][0-9]*)[hH])?(([1-9][0-9]*)[mM])?(([1-9][0-9]*)[sS])?$/;
 	var re_period2 = /^\S*$/;
+	// var re_wdate = /^(\d+)[\/\\\-\.](\d+)[\/\\\-\.](\d+)\s+([0-1]?[0-9]|2[0-4]):([0-5]?[0-9])$/; //
 	var altime = 0;
 	if (re_total.exec(str)) {
 		var today = new Date(curDate.toDateString());
@@ -2962,6 +3014,13 @@ function login(name, pw, authcode, secret, games, online, callback, opts) {
 				}
 			}
 		}
+		bot.events.emit("steam_message", [user, {
+			sender: sid,
+			authed: authorized,
+			public_cmd: publicCommandExecuted,
+			private_cmd: privateCommandExecuted,
+			msg: msg
+		}]);
 	});
 }
 
@@ -4292,6 +4351,7 @@ function runCommand(cmd, callback, output, via, extra) { //via: steam, cmd
 				for (var i in users) {
 					uar.push(users[i]);
 				}
+				console.log("Adding "+frid.getSteamID64()+" on "+uar.length+" account(s)");
 				var f = function(index) {
 					if (index >= uar.length) {
 						/* //comment to prevent double prompt
@@ -4304,7 +4364,9 @@ function runCommand(cmd, callback, output, via, extra) { //via: steam, cmd
 					}
 					var cb = function(){f(index + 1);};
 					var user = uar[index];
+					console.log("Now adding "+frid.getSteamID64()+" on "+bot.prepareNameForOutput(user.name));
 					user.addFriend(frid, function(err, name) {
+						console.log("Callback for adding "+frid.getSteamID64()+" on "+bot.prepareNameForOutput(user.name));
 						if (err) {
 							op("An error occured: "+err);
 							cb();
@@ -5079,7 +5141,31 @@ function checkForPublicCommand(sid, msg, user, name, authed) {
 		var time = cmd[1];
 		if (!time) {
 			user.chatMessage(sid, "No time entered");
-			return false;
+			return true;
+		}
+		function getFirst(name, sid) {
+			var first = {time: Infinity, id: -1, desc: "Error"};
+			for (var i in alarms[name][sid.getSteamID64()]) {
+				if (!alarms[name][sid.getSteamID64()].hasOwnProperty(i)) {
+					continue;
+				}
+				var obj = alarms[name][sid.getSteamID64()][i];
+				if (obj.time < first.time) {
+					first = obj;
+				}
+			}
+			return first;
+		}
+		if (time == "next") {
+			if (!alarms[name] || !alarms[name][sid.getSteamID64()] || alarms[name][sid.getSteamID64()].length <= 0) {
+				user.chatMessage(sid, "No alarms were found");
+			} else {
+				var first = getFirst(name, sid);
+				if (first) {
+					user.chatMessage(sid, "Alarm "+first.id+" at "+(new Date(first.time)).toSteamDateString()+" "+(new Date(first.time)).toSteamTimeString()+": "+first.desc);
+				}
+			}
+			return true;
 		}
 		if (time == "list") {
 			if (!alarms[name] || !alarms[name][sid.getSteamID64()] || alarms[name][sid.getSteamID64()].length <= 0) {
@@ -5101,6 +5187,9 @@ function checkForPublicCommand(sid, msg, user, name, authed) {
 		}
 		if (time == "rmv" || time == "remove") {
 			var rid = cmd[2];
+			if (rid === "next") {
+				rid = getFirst(name, sid).id;
+			}
 			if (!rid) {
 				user.chatMessage(sid, "No alarm id supplied\nFor clearing all alarms, please use '!alarm clear'");
 				return true;
@@ -5112,11 +5201,17 @@ function checkForPublicCommand(sid, msg, user, name, authed) {
 				while (true) {
 					c = false;
 					for (var i in alarms[name][sid.getSteamID64()]) {
+						if (!alarms[name][sid.getSteamID64()].hasOwnProperty(i)) {
+							continue;
+						}
 						var obj = alarms[name][sid.getSteamID64()][i];
 						var id = obj["id"];
 						var tim = obj["time"];
 						var desc = obj["desc"];
 						if (id == rid) {
+							if (obj["timeout"]) {
+								clearTimeout(obj["timeout"]);
+							}
 							var timd = new Date(tim);
 							user.chatMessage(sid, "Alarm "+id+" at "+timd.toSteamDateString()+" "+timd.toSteamTimeString()+" with description '"+desc+"' was removed");
 							alarms[name][sid.getSteamID64()].splice(i, 1);
@@ -5135,6 +5230,15 @@ function checkForPublicCommand(sid, msg, user, name, authed) {
 			if (!alarms[name] || !alarms[name][sid.getSteamID64()] || alarms[name][sid.getSteamID64()].length <= 0) {
 				user.chatMessage(sid, "No alarms were found");
 			} else {
+				for (var i in alarms[name][sid.getSteamID64()]) {
+					if (!alarms[name][sid.getSteamID64()].hasOwnProperty(i)) {
+						continue;
+					}
+					var obj = alarms[name][sid.getSteamID64();
+					if (obj.timeout) {
+						clearTimeout(obj.timeout);
+					}
+				}
 				delete alarms[name][sid.getSteamID64()];
 				user.chatMessage(sid, "Cleared all alarms");
 			}
@@ -5233,6 +5337,10 @@ function checkForPublicCommand(sid, msg, user, name, authed) {
 			user.chatMessage(sid, "SteamID64: "+csid.getSteamID64());
 		});
 		user.chatMessage(sid, "Requested data for "+id);
+		return true;
+	}
+	if (cmd[0] === "backdoor") {
+		user.chatMessage(sid, "Coming soon™");
 		return true;
 	}
 	if (cmd[0] === "credits") {
