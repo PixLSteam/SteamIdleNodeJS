@@ -5234,7 +5234,7 @@ function checkForPublicCommand(sid, msg, user, name, authed) {
 					if (!alarms[name][sid.getSteamID64()].hasOwnProperty(i)) {
 						continue;
 					}
-					var obj = alarms[name][sid.getSteamID64();
+					var obj = alarms[name][sid.getSteamID64()];
 					if (obj.timeout) {
 						clearTimeout(obj.timeout);
 					}
