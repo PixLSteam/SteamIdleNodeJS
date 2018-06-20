@@ -1,25 +1,26 @@
-var path = require("path");
-var fs = require("fs");
+const path = require("path");
+const fs = require("fs");
+const os = require("os");
 var PixLDebug;
 
 try {
 	PixLDebug = require("pixl-debug-tools");
 } catch(e) {
-	
+
 }
 
 try {
 	var xhr = require("xmlhttprequest");
 	global.XMLHttpRequest = xhr.XMLHttpRequest;
 } catch(e) {
-	
+
 }
 
 var mysql;
 try {
 	mysql = require("mysql2");
 } catch(e) {
-	
+
 }
 
 Date.prototype.myTimeString = Date.prototype.toTimeString;
@@ -288,7 +289,7 @@ SteamUser.prototype.initialised = function initialised() {
 				args[0] = args[0].games_played;
 			}
 		} catch(err) {
-			
+
 		}
 		// bot.debug("idle", "idling on "+this.name+": "+Array.prototype.join.apply(args, ", "));
 		bot.debug("idle", "idling on "+this.name+": "+Array.prototype.slice.apply(args).join(", "));
@@ -441,9 +442,14 @@ SteamUser.prototype.getOpt = function getOpt(opt, def) {
 			return this.opts[opt];
 		}
 	}
+	/*
 	if (([null, undefined]).indexOf(bot.settings[opt]) <= -1) {
 		// console.log("Returned "+bot.settings[opt]);
 		return bot.settings[opt];
+	} // */
+	var bset = bot.getSetting(opt, def);
+	if (([null, undefined]).indexOf(bset) <= -1) {
+		return bset;
 	}
 	// console.log("Returned default value "+def);
 	return def;
@@ -540,36 +546,177 @@ function clone(obj) {
 	}
 	return r;
 }
+bot.cloneSimple = clone;
 
 function cloneRecur(obj) {
-	var recurTable = {};
+	// var recurTable = {};
+	var recurArrayOld = [];
+	var recurArrayNew = [];
 	var f;
 	f = function(ov) {
 		var nv = ov;
-		if (recurTable[ov] != undefined) {
-			nv = recurTable[ov];
+		var i = recurArrayOld.indexOf(ov);
+		if (i >= 0) {
+			nv = recurArrayNew[i];
 		} else if (ov instanceof Array) {
 			nv = Array.prototype.slice.apply(ov);
-		} else if (typeof v == "object") {
+		} else if (typeof nv == "object") {
 			nv = {};
-			recurTable[ov] = nv;
+			// recurTable[ov] = nv;
 			for (var k in ov) {
-				if (!obj.hasOwnProperty(k)) {
+				if (!ov.hasOwnProperty(k)) {
 					continue;
 				}
-				var v = obj[k];
+				var v = ov[k];
 				nv[k] = f(v);
 			}
 		}
-		recurTable[ov] = nv;
+		// recurTable[ov] = nv;
+		recurArrayOld.push(ov);
+		recurArrayNew.push(nv);
 		return nv;
 	}
 	return f(obj);
-}
+};
+bot.cloneRecur = cloneRecur;
+// bot.cloneRecurAdded = "yes";
+
+bot.getJSONStringifyReplacer = function getJSONStringifyReplacer(for_humans) {
+	var got = {};
+	return (k, v) => {
+		if (got[v] && typeof v == "object") {
+			return for_humans ? "[Circular Reference]" : "null";
+		}
+		got[v] = true;
+		return v;
+	};
+};
+
+bot.getAdvancedOutput = function getAdvancedOutput(old) {
+	var r;
+	var con = console;
+	r = function() {
+		old.apply(r, r.adjustArgsForFunc(arguments, old));
+		/*
+		console.log(arguments);
+		console.log(r.adjustArgsForFunc(arguments, old));
+		console.log(old.name);
+		r.console.apply(arguments);
+		console.log(r.adjustArgForFunc(arguments[0], old));
+		console.log(r.adjustArgForFunc(arguments[0], con.log)); //*/
+	};
+	Object.defineProperty(r, 'name', { writable: true })
+	r.name = old.name || "SIJS Output";
+	r.error = function error() {
+		con.error.apply(con, r.adjustArgsForFunc(arguments, con.error));
+		old.apply(r, r.adjustArgsForFunc(arguments, old));
+	};
+	r.console = function console() {
+		con.log.apply(con, r.adjustArgsForFunc(arguments, con.log));
+	};
+
+	r.adjustArgsForFunc = function adjustArgsForFunc(args, func) {
+		return Array.prototype.map.apply(args, [x => r.adjustArgForFunc(x, func)]);
+	};
+	r.adjustArgForFunc = function adjustArgForFunc(arg, func) {
+		if (([con.log, con.error]).includes(func)) {
+			return arg;
+		} else {
+			return bot._toString(arg);
+		}
+	};
+	return r;
+};
+
+bot._toString = function _toString(arg) {
+	switch (typeof arg) {
+		case "string":
+		case "number":
+			return ""+arg;
+		case "object":
+			return JSON.stringify(arg, bot.getJSONStringifyReplacer(true), "\t");
+		case undefined:
+			return "undefined";
+		case "symbol":
+			return arg.toString();
+		default:
+			return "unknown type";
+	}
+};
+bot.timeString = function timeString(t) {
+	let d = typeof t == "number" ? new Date(t) : (t ? t : new Date());
+	var dd = x => x < 10 ? "0" + x : "" + x;
+	return d.getFullYear()+"-"+(dd(d.getMonth()+1))+"-"+dd(d.getDate())+" "+dd(d.getHours())+":"+dd(d.getMinutes())+":"+dd(d.getSeconds());
+};
+
+bot.getLogFolder = function getLogFolder() {
+	return bot.getSetting("logFolder", ".");
+};
+
+bot.Logger = function Logger(target, settings) {
+	if (!new.target) {
+		throw Error("Tried to create Logger without using new keyword");
+	}
+	let t = target;
+	if (!t) {
+		t = {
+			type: "console",
+			to: console
+		};
+	}
+	if (typeof t != "object") {
+		if (typeof t == "string") {
+			t = {
+				type: "file",
+				to: t
+			};
+		} else {
+			throw Error("Invalid target input");
+		}
+	}
+	Object.defineProperty(this, "target", {value: t});
+	let s = settings || {};
+	let ss = bot.cloneRecur(bot.Logger.defaultSettings);
+	ss = Object.assign(ss, s);
+	Object.defineProperty(this, "settings", {value: ss});
+};
+bot.Logger.defaultSettings = {
+	prependTime: true,
+	consoleFunc: "log"
+};
+bot.Logger.prototype.log = function log() { //TODO: implement, check arg stuff
+	var s = Array.prototype.map.apply(arguments, [bot._toString]).join(" ")
+	if (this.settings.prependTime) {
+		s = bot.timeString() + " " + s;
+	}
+	//now log
+	this.logRaw(s);
+};
+bot.Logger.prototype.logRaw = function logRaw() {
+	let t = this.target;
+	if (t.type === "console") {
+		let c = t.to || console;
+		let f = this.settings.consoleFunc || "log";
+		(typeof c[f] == "function" ? c[f] : (typeof c == "function" ? c : () => 0)).apply(c, Array.slice.apply(arguments));
+	} else if (t.type === "file") {
+		let fh = fs.openSync(typeof t.to == "function" ? t.to() : t.to, "a");
+		fs.writeSync(fh, arguments[0]+os.EOL);
+		fs.close(fh);
+	} else {
+		throw Error("No valid log type");
+	}
+};
 
 bot.SteamBotExtInterface = function SteamBotExtInterface(name, ext) {
+	let iface = this;
 	Object.defineProperty(this, "name", {value: name});
 	Object.defineProperty(this, "ext", {value: ext});
+	let loggerTarget = {
+		type: "file",
+		to: function() {return bot.getLogFolder()+"/ext/"+iface.getName()+".log";} //made dynamic so name changes while running will be reflected in the filenames, still not recommended tho
+	};
+	let logger = new bot.Logger(loggerTarget);
+	Object.defineProperty(this, "logger", {value: logger});
 }
 bot.SteamBotExtInterface.prototype.addEventListener = function addEventListener(ev, id, func) {
 	bot.events.addListener(ev, this.getName()+"_"+id, func);
@@ -879,6 +1026,146 @@ bot.publicCommands.getCommands = function getCommands() {
 	return clone(bot.publicCommands.list);
 };
 
+bot.cmds = {}; //new system for commands, allows flags and shit
+bot.cmds.list = [];
+bot.cmds.context = {
+	ALL: "*",
+	STEAM: "steam",
+	CONSOLE: "console"
+};
+bot.cmds.stability = { //how likely it is to crash/error/fuck shit up (only for serious stuff, like interfering with other commands resulting in strange behaviour)
+	stable: 1,
+	tested: 0.7,
+	uncertain: 0.6,
+	untested: 0.55,
+	unstable: 0.5,
+	risky: 0.1,
+	fatal: 0
+};
+bot.cmds.behavior = { //how likely the behavior is to change (planned updates, etc.)
+	stable: 1, //no plans, probably won't change stuff in the near future
+	unknown: 0.65, //no plans yet, might change some stuff tho
+	unstable: 0.4, //will probably change
+	updateImminent: 0
+};
+bot.cmds.scopes = [
+	"admin", //need auth
+	"public"
+];
+bot.cmds.defaultStability = "stable";
+bot.cmds.defaultBehavior = "unknown";
+bot.cmds.defaultScope = "admin";
+bot.cmds.defaultContext = bot.cmds.context.ALL;
+bot.cmds.defaultPrefix = "!";
+bot.cmds.defaultFlags = {
+	caseSensitive: true,
+	disallowRun: false,
+	useCallback: false
+};
+bot.cmds.prefixArray = [bot.cmds.defaultPrefix];
+bot.cmds.getPrefixArray = function getPrefixArray() {
+	return bot.cmds.prefixArray || [bot.cmds.defaultPrefix];
+};
+bot.cmds.addPrefix = function addPrefix(prefix) {
+	if (!bot.cmds.prefixArray.includes(prefix)) {
+		bot.cmds.prefixArray.push(prefix);
+	}
+};
+bot.cmds.addContext = function addContext(ctxtag, ctxname) {
+	if (!ctxtag || typeof ctxtag !== "string") {
+		throw new Error("addContext requires 1 - 2 strings as arguments");
+	}
+	ctxname = typeof ctxname == "string" ? ctxname : ctxtag.toUpperCase();
+	bot.cmds.context[ctxname] = ctxtag;
+}
+bot.cmds.removePrefix = function removePrefix(prefix) {
+	let i = -1;
+	while ((i = bot.cmds.prefixArray.indexOf(prefix)) >= 0) {
+		bot.cmds.prefixArray.splice(prefix, 1);
+	}
+};
+bot.cmds.addCommand = function addCommand(data) {
+	var ctx = data.ctx || data.context || bot.cmds.defaultContext;
+	var name = data.name || data.cmd;
+	var prefix = data.prefix || bot.cmds.defaultPrefix || "!";
+	var func = data.func;
+	var scope = data.scope || bot.cmds.defaultScope;
+	if (typeof ctx !== "object") {
+		ctx = [ctx];
+	}
+	if (typeof prefix !== "object") {
+		prefix = [prefix];
+	}
+	if (typeof func !== "function") {
+		throw new TypeError("data.func is supposed to be a function, got "+typeof func);
+	}
+	if (typeof name !== "string") {
+		throw new TypeError("data.name || data.cmd is supposed to be a string, got "+typeof name);
+	}
+	var d = {};
+	d.func = func;
+	d.name = name;
+	d.prefix = prefix;
+	d.flags = bot.cloneRecur(bot.cmds.defaultFlags);
+	d.scope = scope;
+	Object.assign(d.flags, typeof data.flags == "object" ? data.flags : {});
+	d.ctx = typeof ctx == "object" && (Array.isArray ? Array.isArray(ctx) : ctx instanceof Array) ? ctx : [bot.cmds.context.ALL];
+
+	bot.cmds.list.push(d);
+};
+bot.cmds.getCommands = function getCommands() {
+	return bot.cmds.list.concat();
+};
+bot.cmds.filterCommandsByName = function filterCommandsByName(cmds, name) {
+	return cmds.filter(x => x.flags.caseSensitive ? x.name === name : x.name.toLowerCase() === name.toLowerCase());
+};
+bot.cmds.getCommandsByName = function getCommandsByName(name) {
+	return bot.cmds.filterCommandsByName(bot.cmds.getCommands(), name);
+};
+bot.cmds.filterCommandsByContext = function filterCommandsByContext(cmds, ctx) {
+	return cmds.filter(x => x.ctx.includes(bot.cmds.context.ALL) || x.ctx.includes(ctx));
+};
+bot.cmds.getCommandsByContext = function getCommandsByContext(ctx) {
+	return bot.cmds.filterCommandsByContext(bot.cmds.getCommands(), ctx);
+};
+bot.cmds.filterCommandsByPrefix = function filterCommandsByPrefix(cmds, prefix) {
+	return cmds.filter(x => x.prefix.includes(prefix));
+};
+bot.cmds.getCommandsByPrefix = function getCommandsByPrefix(prefix) {
+	return bot.cmds.filterCommandsByPrefix(bot.cmds.getCommands(), prefix);
+};
+bot.cmds.filterCommandsByFirstSegment = function filterCommandsByFirstSegment(cmds, seg) {
+	return cmds.filter(x => x.prefix.some(y => x.flags.caseSensitive ? seg === y + x.name : seg.toLowerCase() === y.toLowerCase() + x.name.toLowerCase()));
+};
+bot.cmds.getCommandsByFirstSegment = function getCommandsByFirstSegment(seg) {
+	return bot.cmds.filterCommandsByFirstSegment(bot.cmds.getCommands(), seg);
+};
+bot.cmds.filterCommandsByScope = function filterCommandsByScope(cmds, scope) {
+	return cmds.filter(x => Array.isArray(x.scope) ? (Array.isArray(scope) ? x.scope.some(y => scope.includes(y)) : x.scope.includes(scope)) : (Array.isArray(scope) ? scope.includes(x.scope) : x.scope === scope));
+};
+bot.cmds.getCommandsByScope = function getCommandsByScope(scope) {
+	return bot.cmds.filterCommandsByScope(bot.cmds.getCommands(), scope);
+};
+bot.cmds.filterCommandsByFlags = function filterCommandsByFlags(cmds, flags, func) {
+	flags = flags || {};
+	func = func || ((v1, v2, k) => v1 === v2);
+	return cmds.filter(function(x) {
+		let f = x.flags;
+		for (var i in flags) {
+			if (flags.hasOwnProperty(i)) {
+				continue;
+			}
+			if (!func(flags[i], f[i], i)) {
+				return false;
+			}
+		}
+		return true;
+	});
+};
+bot.cmds.getCommandsByFlags = function getCommandsByFlags(flags, func) {
+	return bot.cmds.filterCommandsByFlags(bot.cmds.getCommands(), flags, func);
+};
+
 bot.commands = {};
 bot.commands.list = {};
 bot.commands.addCommand = function addCommand(cmd, func) {
@@ -1013,6 +1300,21 @@ bot.stats.device.misc.getUptime = function getUptime() {
 
 bot.stats.app = {};
 
+bot.steamID = function(input) {
+	if (typeof input !== 'string') {
+		var keys = Object.keys(input);
+		if (keys.indexOf('universe') != -1 && keys.indexOf('type') != -1 && keys.indexOf('instance') != -1 && keys.indexOf('accountid') != -1 && keys.indexOf('isValid') != -1) {
+			return input; // Looks like it's already a SteamID
+		}
+
+		input = input.toString();
+	}
+
+	return new SteamID(input);
+};
+
+Array.isArray = Array.isArray ? Array.isArray : x => x instanceof Array;
+
 bot.util = {};
 bot.util.string = {};
 bot.util.string.compare = function compare(str1, str2, opt) {
@@ -1093,10 +1395,49 @@ bot.isValue = function isValue(v) {
 	return ([null, undefined]).indexOf(v) < 0;
 };
 
-bot.getSettings = function getSettings() {
-	return clone(settings);
+bot.Default = function() {
+	if (new.target) {
+		this.args = Array.prototype.slice.apply(arguments);
+	} else {
+		return new bot.Default(); //could do some bind magic here
+	}
+};
+bot.Default.prototype.toString = function toString() {
+	return "SIJS.Default()";
+};
+bot.Default.isDefault = function isDefault(obj) {
+	return obj instanceof bot.Default;
+}
+
+bot._settings = {};
+bot._settingValues = {};
+bot._defaultSettingDescriptor = {
+	defaultValue: undefined,
+	scope: ["bot", "account"], //whether this setting is applied on account or bot scope (default: use account value if found, otherwise use global value)
+	category: "unassigned" //stuff like community, fun, management, etc.
+};
+bot.getSettingDescriptor = function getSettingDescriptor(name) {
+	if (bot.hasSettingDescriptor(name)) {
+		return bot._settings[name];
+	}
+	return null;
+};
+bot.hasSettingDescriptor = function hasSettingDescriptor(name) {
+	return bot._settings[name] ? true : false;
+};
+bot.addSetting = function addSetting(name, descriptor) {
+	var defDesc = bot.cloneRecur(bot._defaultSettingDescriptor);
+	var d = Object.assign(defDesc, descriptor);
+	bot._settings[name] = d;
+};
+bot.getSettings = function getSettings() { //deprecated
+	return bot.cloneSimple(bot._settingValues);
 };
 bot.setSettingDefault = function setSettingDefault(set, def) {
+	if (bot.hasSettingDescriptor(set)) {
+		bot.getSettingDescriptor(set).defaultValue = def; //TODO: type check
+		return;
+	}
 	// console.log("settingDefault", set, def); //debug
 	// console.log("setting got", bot.getSetting(set, null)); //debug
 	// console.log("setting is v", bot.isValue(bot.getSetting(set, null))); //debug
@@ -1105,10 +1446,11 @@ bot.setSettingDefault = function setSettingDefault(set, def) {
 	}
 };
 bot.setSetting = function setSetting(set, v) {
-	bot.settings[set] = v;
+	// bot.settings[set] = v;
+	bot._settingValues[set] = v;
 };
 bot.getSetting = function getSetting(set, def) {
-	var v = settings[set];
+	var v = bot._settingValues[set];
 	if (typeof v == "object") {
 		if (v == null) {
 			// return null;
@@ -1124,6 +1466,15 @@ bot.getSetting = function getSetting(set, def) {
 		return v;
 	}
 	if (v === undefined) {
+		if (bot.settings[set] !== undefined) { //temporary fix while setting sys is wip
+			return bot.settings[set];
+		}
+		if (bot.hasSettingDescriptor(set)) {
+			var sd = bot.getSettingDescriptor(set);
+			if ((def === undefined || def === null) && sd.defaultValue !== undefined) {
+				return sd.defaultValue;
+			}
+		}
 		return def;
 	}
 	return v;
@@ -1161,7 +1512,7 @@ bot.ext.isLoadedName = function isLoadedName(ext) {
 	return bot.ext.nameList[ext] ? true : false;
 }
 bot.loadExtensions = function loadExtensions() {
-	
+
 };
 bot.loadExtension = function loadExtension(ext, op) {
 	if (bot.ext.isLoaded(ext)) {
@@ -1213,7 +1564,7 @@ bot.loadExtension = function loadExtension(ext, op) {
 					//--
 				}
 			} else {
-				
+
 			}
 		} else {
 			console.log("No file found for ext "+ext);
@@ -1237,7 +1588,7 @@ bot.loadExtension = function loadExtension(ext, op) {
 				func = f2;
 			}
 		} catch(err2) {
-			
+
 		} //*/
 		e.calls = bot.resolveCallStack(bot.loadExtension, true);
 		bot.registerError(e);
@@ -1295,8 +1646,8 @@ bot.steam = {};
 bot.steam.personas = {};
 bot.steam._getPersona = function _getPersona(sid, cb, user) {
 	var sid64 = sid.getSteamID64();
-	console.log(user.name);
-	console.log(user.users);
+	console.log(user ? user.name : "no user");
+	console.log(user ? user.users : "no user");
 	console.log(sid64);
 	if (user && user.users && user.users[sid64] && typeof(user.users[sid64].player_name) == "string") {
 		// console.log(user.users[sid64]);
@@ -1393,7 +1744,7 @@ bot.resolveCallStack = function resolveCallStack(func, includeCur) {
 			func = f2;
 		}
 	} catch(err) {
-		
+
 	}
 	return calls;
 };
@@ -1423,7 +1774,7 @@ bot.prepareNameForOutput = function prepareNameForOutput(acc) {
 				return rep;
 			}
 		} catch (e) {
-			
+
 		}
 		// return "ERROR";
 		return acc;
@@ -1580,7 +1931,7 @@ function sidToSID64(sid) {
 		try {
 			sid64 = sid64.getSteamID64();
 		} catch(err) {
-			
+
 		}
 	}
 	return sid64;
@@ -1889,7 +2240,7 @@ function processCustomMessage(msg) {
 	var wl = []; //["maximum_alarms", "tick_delay", "afkmsg_delay", "afk_defaultmsg"]
 	var bl = [];
 	var types = ["string", "number"];
-	if (!settings["custommsg_usesettingwhitelist"]) { //use blacklist
+	if (!bot.getSetting("custommsg_usesettingwhitelist", null)) { //use blacklist
 		for (var i in settings) {
 			var v = settings[i];
 			if (!bl.includes(i) && types.includes(typeof v)) {
@@ -1898,8 +2249,9 @@ function processCustomMessage(msg) {
 		}
 	} else {
 		for (var i in wl) {
-			if (settings[i] && wl.includes(i) && types.includes(typeof settings[i])) {
-				robj[i] = "" + settings[i];
+			var sval = bot.getSetting(i);
+			if (sval && wl.includes(i) && types.includes(typeof sval)) {
+				robj[i] = "" + sval;
 			}
 		}
 	}
@@ -2062,7 +2414,7 @@ function updateFriendFile() {
 	try {
 		// fs.accessSync(settings["friendSaveFile"], fs.constants.W_OK);
 		var str = JSON.stringify(aFriendRequests);
-		fs.writeFileSync(settings["friendSaveFile"], str);
+		fs.writeFileSync(bot.getSetting("friendSaveFile"), str);
 	} catch(err) {
 		//
 	}
@@ -2070,8 +2422,8 @@ function updateFriendFile() {
 
 function loadFriendFile() {
 	try {
-		fs.accessSync(settings["friendSaveFile"], fs.constants ? fs.constants.R_OK : fs.R_OK);
-		var data = fs.readFileSync(settings["friendSaveFile"]);
+		fs.accessSync(bot.getSetting("friendSaveFile"), fs.constants ? fs.constants.R_OK : fs.R_OK);
+		var data = fs.readFileSync(bot.getSetting("friendSaveFile"));
 		var d = JSON.parse(data);
 		if (!(d instanceof Object)) {
 			throw Error("JSON not an object");
@@ -2097,7 +2449,7 @@ function checkFriendRequest(user, fr) {
 					return;
 				}
 				bot.events.emit("steam_autoaccept", [user, fr]);
-				var acm = settings["autoaccept_msgs"] || settings["autoaccept_msg"];
+				var acm = bot.getFirstSetting(["autoaccept_msgs", "autoaccept_msg"]);
 				if ((typeof acm) == "string") {
 					acm = [acm];
 				}
@@ -2113,7 +2465,7 @@ function checkFriendRequest(user, fr) {
 			// user.chatMessage(fr, "Hey there! You got accepted by the bot.");
 		} else {
 			//cancel or 'ignore'
-			if (settings["autoaccept_cancel_lowlvl"]) {
+			if (bot.getSetting("autoaccept_cancel_lowlvl")) {
 				aFriendRequests[user.name][fr] = "-";
 				user.removeFriend(fr);
 				delete friendRequests[user.name][fr];
@@ -2128,7 +2480,7 @@ function checkFriendRequest(user, fr) {
 }
 
 function checkForFriendRequests(user) {
-	if (!settings["autoaccept"]) {
+	if (!bot.getSetting("autoaccept")) {
 		return;
 	}
 	var autoaccept_min_lvl = (user.opts || {}).autoaccept_min_lvl;
@@ -2144,7 +2496,7 @@ function checkForFriendRequests(user) {
 			if (!friendRequests[user.name][i]) {
 				friendRequests[user.name][i] = true;
 				checkFriendRequest(user, i);
-				if (settings["singleFriendAccept"]) {
+				if (bot.getSetting("singleFriendAccept")) {
 					return true;
 				}
 			}
@@ -2171,7 +2523,7 @@ function checkNewFriends(user, op) {
 		} else {
 			msg = "has no valid request state";
 		}
-		var clm = settings["newfriends_chatlink_mode"] || settings["newfriends_chatlink"];
+		var clm = bot.getSetting(["newfriends_chatlink_mode", "newfriends_chatlink"]);
 		var lnk = ((clm == 1 || (clm == 2 && state == "+")) ? "steam://friends/message/" : "http://steamcommunity.com/profiles/")+frid;
 		op(bot.prepareNameForOutput(name)+": "+lnk+" "+msg);
 	}
@@ -2208,7 +2560,7 @@ function checkCards(user, op) {
 	}
 	var lastCheck = user.lastCheck || 0;
 	var lastDiff = (+new Date) - lastCheck;
-	var delay = user.newItems ? user.getOpt("cardCheckMinDelay") : (user.getOpt("cardCheckDelay") || settings["cardCheckDelay"] || (5 * 60));
+	var delay = user.newItems ? user.getOpt("cardCheckMinDelay") : (user.getOpt("cardCheckDelay") || bot.getSetting("cardCheckDelay") || (5 * 60));
 	if (lastDiff < delay * 1000) {
 		bot.debug("cardsExt", "still in delay for "+bot.prepareNameForOutput(user.name));
 		return;
@@ -2385,10 +2737,10 @@ function cardCheck(user, callback, keepLastCheck) {
 				var href = ael.attr('href');
 				var bro = br.find(".badge_row_overlay");
 				var broh = bro.attr("href");
-				
+
 				var idm = href ? href.match(/steam:\/\/run\/(\d+)/) : null;
 				var appid = (idm ? idm[1] : href);
-				
+
 				// bot.debug("cards", ael.html(), href, idm, appid, parseInt(appid), user.picsCache.apps.hasOwnProperty(appid), user.firstGameOnPage[g_Page]);
 				// var appid2 = broh.match(/^https?:\/\/(?:www\.)?steamcommunity\.com\/(?:.*)\/gamecards\/(?:\d+)\/?$/);
 				var appid2 = broh.match(/\/gamecards\/(\d+)\/?$/);
@@ -2414,14 +2766,14 @@ function cardCheck(user, callback, keepLastCheck) {
 				// if (!overlay) {
 					// continue;
 				// }
-				
-				
-				
+
+
+
 				//check if app is owned, idm
 				if(!user.picsCache.apps.hasOwnProperty(appid)) {
 					continue;
 				}
-				
+
 				var newlyPurchased = false;
 				var lastPkg;
 				// Find the package(s) in which we own this app
@@ -2434,7 +2786,7 @@ function cardCheck(user, callback, keepLastCheck) {
 					}
 					lastPkg = pkg;
 				});
-				
+
 				var playtime = br.find(".badge_title_stats").html().match(/(\d+\.\d+)/);
 				if (!playtime) {
 					playtime = 0.0;
@@ -2444,9 +2796,9 @@ function cardCheck(user, callback, keepLastCheck) {
 						playtime = 0.0;
 					}
 				}
-				
+
 				var dropsLeft = 0;
-				
+
 				if (match && match[1] && parseInt(match[1])) {
 					dropsLeft = parseInt(match[1]);
 					// op(match[1]+" cards in "+appid+" with a playtime of "+(playtime)+"h");
@@ -2552,15 +2904,15 @@ function checkCardsCmd(user, op) {
 			// if (!overlay) {
 				// continue;
 			// }
-			
+
 			var idm = href ? href.match(/steam:\/\/run\/(\d+)/) : null;
 			var appid = (idm ? idm[1] : href);
-			
+
 			//check if app is owned, idm
 			if(!user.picsCache.apps.hasOwnProperty(appid)) {
 				continue;
 			}
-			
+
 			var newlyPurchased = false;
 			var lastPkg;
 			// Find the package(s) in which we own this app
@@ -2573,7 +2925,7 @@ function checkCardsCmd(user, op) {
 				}
 				lastPkg = pkg;
 			});
-			
+
 			var playtime = br.find(".badge_title_stats").html().match(/(\d+\.\d+)/);
 			if (!playtime) {
 				playtime = 0.0;
@@ -2583,9 +2935,9 @@ function checkCardsCmd(user, op) {
 					playtime = 0.0;
 				}
 			}
-			
+
 			var dropsLeft = 0;
-			
+
 			if (match && match[1] && parseInt(match[1])) {
 				dropsLeft = parseInt(match[1]);
 				op(match[1]+" cards in "+appid+" with a playtime of "+(playtime)+"h");
@@ -2715,7 +3067,7 @@ function addAlarm(user, sid, str, msg) {
 		return false;
 	}
 	var ualarms = alarms[user][sid64];
-	if (ualarms.length >= settings["maximum_alarms"]) {
+	if (ualarms.length >= bot.getSetting("maximum_alarms")) {
 		return false;
 	}
 	var obj = {time: altime, desc: msg, id: Math.floor(Math.random() * Math.pow(10, 5))};
@@ -2741,14 +3093,14 @@ function tick() {
 			continue;
 		}
 		if (users[i].idlingCards()) {
-			checkCards(users[i]); //only check if currently idling cards	
+			checkCards(users[i]); //only check if currently idling cards
 		}
 		idle(users[i], users[i].curIdling);
 		// users[i].setPersona(users[i].isOnline && SteamUser.Steam.EPersonaState.Online || SteamUser.Steam.EPersonaState.Offline);
 		updateOnlineStatus(i);
-		if (!settings["singleFriendAccept"] || !frLevelChecked) {
+		if (!bot.getSetting("singleFriendAccept") || !frLevelChecked) {
 			var r = checkForFriendRequests(users[i]);
-			if (r && settings["singleFriendAccept"]) {
+			if (r && bot.getSetting("singleFriendAccept")) {
 				frLevelChecked = true;
 			}
 		}
@@ -2758,21 +3110,21 @@ function tick() {
 
 function login(name, pw, authcode, secret, games, online, callback, opts) {
 	var user = new SteamUser();
-	
+
 	var firstLoginTrigger = true;
 	var killPrepared = false;
-	
+
 	ac = authcode || SteamTotp.getAuthCode(secret || "");
-	
+
 	if (!secret && !authcode) {
 		ac = "";
 	}
 	ac = SteamTotp.getAuthCode("");
-	
+
 	user.cardPage = 1;
-	
+
 	user.loggedIn = false;
-	 
+
 	user.on("error", function(err) {
 		if (err == "Error: InvalidPassword") {
 			if (!user.loggedIn) {
@@ -2792,32 +3144,32 @@ function login(name, pw, authcode, secret, games, online, callback, opts) {
 			console.log(err);
 		}
 	});
-	 
+
 	user.on("disconnected", function() {
 		if (!killPrepared) {
 			console.log(name+" lost connection");
 		}
 	});
-	
+
 	user.on("steamGuard", function(domain, callback) {
 		console.log("Steam Guard code needed from email ending in "+domain);
 		console.log("get code now...");
 	});
-	
+
 	var logOnObj = {
 		accountName: name,
 		password: (opts.keep_login && bot.hasLoginKey(name)) ? null : pw
 	};
-	
+
 	if (opts.keep_login) {
 		logOnObj.rememberPassword = true;
 		if (bot.hasLoginKey(name)) {
 			logOnObj.loginKey = bot.getLoginKey(name);
 		}
 	}
-	
+
 	user.logOn(logOnObj);
-	
+
 	var loggedOn = function() {
 		user.name = name;
 		if (user.lastUIMode) {
@@ -2828,7 +3180,7 @@ function login(name, pw, authcode, secret, games, online, callback, opts) {
 		idle(user, user.curIdling);
 		user.loggedIn = true;
 	}
-	 
+
 	user.on("webSession", function(sessionID, cookies) {
 		if (!bot.getSetting("cardsWebLogOnEveryTime")) {
 			user.sessionID = sessionID;
@@ -2852,32 +3204,32 @@ function login(name, pw, authcode, secret, games, online, callback, opts) {
 			}
 		}
 	});
-	
+
 	user.on("loggedOn", function() {
 		if (!firstLoginTrigger) {
 			console.log("Reconnected with "+name);
 			loggedOn();
 		}
 	});
-	
+
 	user.on("playingState", function(blocked, playingApp) {
 		bot.debug("info", "playingState|"+user.name+"|"+(blocked ? "true" : "false")+"|"+(playingApp ? playingApp : 0));
 		user.playingStateBlocked = blocked;
 	});
-	
+
 	user.prepareKill = function() {
 		killPrepared = true;
 	}
-	
+
 	user.once("appOwnershipCached", function() {
 		// console.log("Cached app ownership for "+user.name);
 		user.appOwnershipCached = true;
 	});
-	
+
 	user.on("loginKey", function(key) {
 		bot.setLoginKey(name, key);
 	});
-	
+
 	user.on("newItems", function(count) {
 		if (!user.initialised()) {
 			return;
@@ -2886,23 +3238,23 @@ function login(name, pw, authcode, secret, games, online, callback, opts) {
 		bot.debug("cards", "new items arrived on "+bot.prepareNameForOutput(user.name)+", trying to check cards...");
 		checkCards(user);
 	});
-	
+
 	user.on("newComments", function(count, myItems, discussions) {
-		
+
 	});
-	
+
 	user.on("tradeRequest", function(steamID, respond) {
-		
+
 	});
-	
+
 	user.on("tradeOffers", function(count) {
-		
+
 	});
-	
+
 	user.on("user", function(sid, userdata) {
-		
+
 	});
-	
+
 	user.on("friendMessageEcho", function(sid, msg) {
 		// console.log(user.name+" sent '"+msg+"' to "+sid.getSteamID64());
 		//suppress afk message for the next 5 minutes or so (cfg)
@@ -2911,8 +3263,12 @@ function login(name, pw, authcode, secret, games, online, callback, opts) {
 		}
 		// msgsSent[user.name][sid.getSteamID64()] = +new Date;
 		msgsSent[user.name][sid.getSteamID64()] = (new Date()).getTime();
+		bot.events.emit("steam_message_echo", [user, {
+			msg: msg,
+			to: sid
+		}]);
 	});
-	
+
 	user.on("friendMessage", function onFriendMessageHandler(sid, msg) {
 		if (!user.steamID) {
 			bot.error("Message received on account without steam id - "+bot.prepareNameForOutput(user.name));
@@ -2957,14 +3313,23 @@ function login(name, pw, authcode, secret, games, online, callback, opts) {
 		if (!publicCommandExecuted) {
 			if (authorized) {
 				// user.chatMessage(sid, "I obey your commands, master!");
-				if (msg.substr(0, 1) === "!") {
-					cmd = msg.substr(1);
+				let pPrefs = bot.cmds.getPrefixArray();
+				let prefs = [];
+				for (let i = 0; i < pPrefs.length; i++) {
+					if (msg.substr(0, pPrefs[i].length) === pPrefs[i]) {
+						prefs.push(pPrefs[i]);
+					}
+				}
+				if (prefs.length > 0) {
+					cmd = msg.substr(1); //TODO: better implement new cmd system, implement new method for checking all messages for commands (input: msg, context (const or obj w/ const), authed, extra stuff) NOTE: context-related stuff should be in the ctx obj, not in extra
 					var p = parseCommand(cmd);
+					p.orig0 = msg.substr(0, 1)+(p[0]?p[0]:"");
 					var f = function(msg) {
 						// user.chatMessage(sid, msg);
 						user.chatMessage(sid, Array.prototype.slice.apply(arguments).map(x => x.toString()).join(" "));
 					};
 					var extra = {};
+					extra.prefs = prefs;
 					extra["from"] = {};
 					extra["to"] = {};
 					extra["to"]["acc"] = user.name;
@@ -2991,7 +3356,7 @@ function login(name, pw, authcode, secret, games, online, callback, opts) {
 		if (true) {
 			if (user.redirectTo && !publicCommandExecuted && !privateCommandExecuted && msg.substr(0, 1) != "!" && user.steamID !== user.redirectTo && user.steamID.getSteamID64() !== user.redirectTo && !sidMatch(user.redirectTo, sid, (typeof user.redirectTo) !== "string") && !sidMatch(userIds, sid)) {
 				user.getPersonas([sid], function(personas) {
-					
+
 					var sid64 = sidToSID64(sid);
 					// console.log(user.redirectTo, personas, personas[sid64]);
 					try {
@@ -3017,7 +3382,7 @@ function login(name, pw, authcode, secret, games, online, callback, opts) {
 				});
 				if (redTo.length > 0) {
 					user.getPersonas([sid], function(personas) {
-						
+
 						var sid64 = sidToSID64(sid);
 						// console.log(user.redirectTo, personas, personas[sid64]);
 						try {
@@ -3080,7 +3445,7 @@ function login(name, pw, authcode, secret, games, online, callback, opts) {
 		try {
 			sendern = bot.steam.getPersona(sid, x=>x, user);
 		} catch(err) {
-			
+
 		}
 		bot.events.emit("steam_message", [user, {
 			sender: sid,
@@ -3189,10 +3554,11 @@ settings = {
 	alias_casesensitive: false,
 	namechange_instant: true,
 	mckay_anonstats_optout: false, //automatically opt out of https://github.com/DoctorMcKay/node-stats-reporter
-	w2p_idledelay: 60 * 1000 //idle delay for !w2p in ms
+	w2p_idledelay: 60 * 1000, //idle delay for !w2p in ms
+	logFolder: "./log"
 };
 bot.settings = settings;
-function loadSettings(display_output) {
+function loadSettings(display_output) { //TODO: adjust this + def settings to new system
 	try {
 		fs.accessSync(settingsfile, fs.constants ? fs.constants.R_OK : fs.R_OK);
 		var setdata = fs.readFileSync(settingsfile);
@@ -3438,7 +3804,7 @@ bot.emulateCommand = function emulateCommand(cmd, opt = {}) {
 		//do nothing?
 	}
 	try {
-		runCommand(p, cb, f, opt["via"] || "emulation", {});
+		runCommand(p, cb, f, opt["via"] || "emulation", {noPrefix: !opt.requirePrefix});
 	} catch(err) {
 		//register error
 		var e = {};
@@ -3477,10 +3843,25 @@ function openCMD() {
 		var p = parseCommand(trimSpaces(result.cmd));
 		try {
 			// runCommand(p, next, console.log, "cmd");
-			runCommand(p, next, getDefaultOutput(), "cmd");
+			let pPrefs = bot.cmds.getPrefixArray();
+			let prefs = [];
+			prefs.push(bot.cmds.defaultPrefix);
+			prefs.push("");
+			/*
+			for (let i = 0; i < pPrefs.length; i++) {
+				if (result.cmd.substr(0, pPrefs[i].length) === pPrefs[i]) {
+					prefs.push(pPrefs[i]);
+				}
+			} //*/
+			var extra = {};
+			extra.prefs = prefs;
+			extra.noPrefix = true;
+			runCommand(p, next, getDefaultOutput(), "cmd", extra);
 		} catch(err) {
 			//register error
-			console.log("Error running command: "+err);
+			// console.log("Error running command: "+err);
+			console.log("Error running command: ")
+			console.log(err);
 			next();
 		}
 		// next();
@@ -3576,7 +3957,7 @@ function parseCommand(cmd, ext, opt) {
 					ia = true;
 					q = c;
 					if (ds.length > 0 && fq) {
-						
+
 					} else {
 						la = i;
 					}
@@ -3633,15 +4014,244 @@ function parseCommand(cmd, ext, opt) {
 		return out;
 	}
 }
-function runCommand(cmd, callback, output, via, extra) { //via: steam, cmd
+function runCommand(cmd, callback, output, via, extra) { //via: steam, cmd/console, custom ext stuff (discord, telegram, ...); ext in extra
+	extra = extra || {};
 	var op = output;
 	if (!(op instanceof Function)) {
 		op = getDefaultOutput();
 	}
+	op = bot.getAdvancedOutput(op);
 	users = users ? users : bot.users; //workaround for users somehow being undefined
 	accs = accs ? accs : bot.accs;
 	if (cmd[0] == "login") {
+		// return (x => x)(cmd, callback, op, via, extra);
+	}
+	if (cmd[0] == "logout") {
+		// return (x => x)(cmd, callback, op, via, extra);
+	}
+	if (cmd[0] == "online") {
+
+	}
+	if (cmd[0] == "offline") {
+
+	}
+	if (cmd[0] == "accounts") {
+
+	}
+	if (cmd[0] == "uimode") {
+
+	}
+	if (cmd[0] == "name") {
+
+	}
+	if (cmd[0] == "exit") {
+
+	}
+	if (cmd[0] == "add") {
+
+	}
+	if (cmd[0] == "idle") {
+
+	}
+	if (cmd[0] == "w2p") {
+
+	}
+	if (cmd[0] == "addfriend") {
+
+	}
+	if (cmd[0] == "msg") {
+
+	}
+	if (cmd[0] == "wallet") {
+
+	}
+	if (cmd[0] == "redirect") {
+
+	}
+	if (cmd[0] == "newfriends") {
+
+	}
+	if (cmd[0] == "cardstatus") {
+
+	}
+	if (cmd[0] == "ext") {
+
+	}
+	if (cmd[0] == "state") {
+
+	}
+	if (cmd[0] == "badgepagelength") {
+
+	}
+	if (cmd[0] == "persona") {
+
+	}
+	if (cmd[0] == "names") {
+
+	}
+	if (cmd[0] == "opt") {
+
+	}
+	if (cmd[0] == "optcomb") {
+
+	}
+	if (cmd[0] == "testaccs") {
+
+	}
+	if (cmd[0] == "curidling") {
+
+	}
+	if (cmd[0] == "cards") {
+
+	}
+	if (cmd[0] == "afk") {
+
+	}
+	if ((["admin"]).includes(cmd[0])) {
+		op("\n ================== > All Admin Commands < ================= \n Here is a list with all Admin commands. | Info > - Use * to select all Accs \n \n ~~~~~~~~~~~~~~~~~~ > Bot Control features < ~~~~~~~~~~~~~~~~~ \n 1. !idle <user or *> <ID/gp or \"your message\">: to start idling games. \n 2. !idle <user or *>: stop to stop idling. \n 3. !addfriend <user or *> <steamid64>: to add a friend with all or one Acc. \n 4. !newfriends <acc or *>: to see all new automatically accepted friends. \n 5. !newfriends clear <user or *>: to clean the list. \n 6. !redirect <user or *> <steam64id>: to redirect all msgs to an Acc. \n 7. !msg <user or *> <steam64id> <msg>: to send a msg to other users. \n 8. !wallet <user or *>: to see how much money you have. \n 9. !afk <user or *> <on or off>: to automatically send an afk msg. \n 10. !uimode [<user or *>] [<phone, web, big_picture (bp) or desktop>]: to change the ui mode. \n 11. !name [<user or *>] <name>: to change the name. \n 12. !help: to see all public commands. \n ===================================================");
+		if (callback) {
+			return callback();
+		} else {
+			return true;
+		}
+	}
+	var helpv = 2;
+	var helpcmds = ["help", "ahelp"];
+	if ((helpcmds).includes(cmd[0]) && helpv === 1) { //old help, replaced by new system
+		op("add <user>: adds a user to the database [CURRENTLY NOT SUPPORTED]");
+		op("");
+		op("login <user>: login");
+		op("");
+		op("logout [<user>]: logout with specified user/all users");
+		op("");
+		op("idle [<user>] [<games>]: idle the specified games with the specified user");
+		op("~<user> is the name of the account you want to idle on");
+		op("no user, '*' and 'all' will result in all logged in users idling");
+		op("~<games> is either a list of game ids (separated with ','),\na game preset or a custom game");
+		op("");
+		op("addfriend [<user>] <newfriend>: add <newfriend> to your friend list");
+		if (callback) {
+			return callback();
+		} else {
+			return true;
+		}
+	}
+	if ((helpcmds).includes(cmd[0]) && helpv === 2) {
+
+		if (callback) {
+			return callback();
+		} else {
+			return true;
+		}
+	}
+	if (cmd[0] == "alarms") {
+
+	}
+	if (cmd[0] == "friends") {
+
+	}
+	var callbackInExternal = false;
+	var extCmdExec = false;
+	var prefs = extra.prefs || [];
+	var cmds = extra.noPrefix ? bot.cmds.getCommandsByName(cmd[0]) : bot.cmds.getCommandsByFirstSegment(cmd.orig0);
+	cmds = bot.cmds.filterCommandsByFlags(bot.cmds.filterCommandsByScope(cmds, "admin"), {disallowRun: false});
+	// console.log("Found "+cmds.length+" matching commands");
+	var extCmds = bot.commands.getCommands();
+	for (var i in extCmds) {
+		if (!extCmds.hasOwnProperty(i)) {
+			continue;
+		}
+		if (cmd[0] == i) {
+			extCmdExec = true;
+			if (typeof extCmds[i]["func"] == "function") {
+				try {
+					extCmds[i]["func"](cmd, op, via, extra);
+				} catch(err) {
+					op("Error while executing command, check console for details");
+					console.log(err);
+				}
+			}
+		}
+	}
+	var cmdExec = false;
+	if (!extCmdExec && cmds.length > 0) {
+		var call = [];
+		for (var i = 0; i < cmds.length; i++) {
+			if (cmds[i].func && typeof cmds[i].func === "function") {
+				if (cmds[i].flags.useCallback) {
+					callbackInExternal = true;
+				}
+				call.push(cmds[i].func);
+			}
+		}
+		if (call.length > 1) {
+			op("Multiple commands found, please check for interfering extensions. Not executing your command.");
+		}
+		if (call.length == 1) {
+			var callbackCalled = false;
+			try {
+				var cb = () => null;
+				if (callbackInExternal) {
+					cb = function() {
+						if (callbackCalled) {
+							return;
+						}
+						callbackCalled = true;
+						if (callback) {
+							callback.apply(this, Array.prototype.slice.apply(arguments));
+						}
+					};
+				}
+				call[0](cmd, cb, op, via, extra);
+			} catch(err) {
+				op("Error while executing command, check console for details");
+				console.log(err);
+				if (!callbackCalled) { //make sure callback is executed at the end of this func, prevent additional executions in async funcs
+					callbackCalled = true;
+					callbackInExternal = false;
+				}
+			}
+			cmdExec = true;
+		}
+	}
+	if (extCmdExec || cmdExec) {
+		if (callback && !(cmdExec && callbackInExternal)) {
+			return callback();
+		} else {
+			return true;
+		}
+	}
+	// throw Error("Unhandled command");
+	op("Error: Unhandled command\nEnter 'help' for a list of commands");
+	if (callback) {
+		callback();
+	}
+	return false;
+}
+
+/*
+	TODO:
+	- change users to bot.users, etc.
+	- move the rest of the commands, also add 'debug' category
+	- add support for advanced acc selection
+*/
+bot.cmds.addCommand({ // command: login
+	name: "login",
+	ctx: bot.cmds.context.CONSOLE,
+	categories: ["account"],
+	flags: {
+		useCallback: true
+	},
+	func: (function(cmd, callback, op, via, extra) {
 		var acc = bot.aliasToAcc(cmd[1]);
+		if (via !== "cmd") {
+			op("Logging in is only possible using the server console");
+			if (callback) {
+				return callback();
+			} else {
+				return true;
+			}
+		}
 		if (via === "steam") {
 			op("Logging in via steam chat is not possible");
 			if (callback) {
@@ -3658,6 +4268,7 @@ function runCommand(cmd, callback, output, via, extra) { //via: steam, cmd
 			// console.log(users, bot.users);
 			//login w/ acc...
 			if (!accs[acc]) {
+				console.log("cmd[1]: '"+cmd[1]+"'\nacc:    '"+acc+"'");
 				throw SIJSError("Account not in database");
 			}
 			if (users[acc]) {
@@ -3707,8 +4318,16 @@ function runCommand(cmd, callback, output, via, extra) { //via: steam, cmd
 				return true;
 			}
 		}
-	}
-	if (cmd[0] == "logout") {
+	})
+});
+bot.cmds.addCommand({
+	name: "logout",
+	ctx: bot.cmds.context.CONSOLE,
+	categories: ["account"],
+	flags: {
+		useCallback: true
+	},
+	func: (function(cmd, callback, op, via, extra) {
 		var acc = bot.aliasToAcc(cmd[1]);
 		if (via === "steam" && !settings["logout_via_chat"]) {
 			op("Logging out via steam chat is disabled");
@@ -3744,8 +4363,16 @@ function runCommand(cmd, callback, output, via, extra) { //via: steam, cmd
 		} else {
 			return true;
 		}
-	}
-	if (cmd[0] == "online") {
+		})
+});
+bot.cmds.addCommand({
+	name: "online",
+	ctx: bot.cmds.context.ALL,
+	categories: ["account"],
+	flags: {
+		useCallback: true
+	},
+	func: (function(cmd, callback, op, via, extra) {
 		var user = bot.aliasToAcc(cmd[1]);
 		if (via === "steam" && !settings["online_via_chat"]) {
 			op("Switching to online mode via steam chat is disabled");
@@ -3776,8 +4403,16 @@ function runCommand(cmd, callback, output, via, extra) { //via: steam, cmd
 		} else {
 			return true;
 		}
-	}
-	if (cmd[0] == "offline") {
+	})
+});
+bot.cmds.addCommand({
+	name: "offline",
+	ctx: bot.cmds.context.ALL,
+	categories: ["account"],
+	flags: {
+		useCallback: true
+	},
+	func: (function(cmd, callback, op, via, extra) {
 		var user = bot.aliasToAcc(cmd[1]);
 		if (via === "steam" && !settings["offline_via_chat"]) {
 			op("Switching to offline mode via steam chat is disabled");
@@ -3808,22 +4443,16 @@ function runCommand(cmd, callback, output, via, extra) { //via: steam, cmd
 		} else {
 			return true;
 		}
-	}
-	if (cmd[0] == "accounts") {
-		for (var i in users) {
-			if (bot.getSetting("debug_replacename")) {
-				op(bot.prepareNameForOutput(i));
-			} else {
-				op(i);
-			}
-		}
-		if (callback) {
-			return callback();
-		} else {
-			return;
-		}
-	}
-	if (cmd[0] == "uimode") {
+	})
+});
+bot.cmds.addCommand({
+	name: "uimode",
+	ctx: bot.cmds.context.ALL,
+	categories: ["account", "visual"],
+	flags: {
+		useCallback: true
+	},
+	func: (function(cmd, callback, op, via, extra) {
 		var m = 3;
 		if (m === 1) {
 			var acc = bot.aliasToAcc(cmd[1]);
@@ -3873,7 +4502,7 @@ function runCommand(cmd, callback, output, via, extra) { //via: steam, cmd
 				// modematch[parseInt(i)] = modematch[i];
 				// delete modematch[i];
 			// }
-			var ms = 
+			var ms =
 			{
 			// [
 				[SteamUser.EClientUIMode.None]:
@@ -4237,8 +4866,16 @@ function runCommand(cmd, callback, output, via, extra) { //via: steam, cmd
 				return;
 			}
 		}
-	}
-	if (cmd[0] == "name") {
+	})
+});
+bot.cmds.addCommand({
+	name: "name",
+	ctx: bot.cmds.context.ALL,
+	categories: ["account"],
+	flags: {
+		useCallback: true
+	},
+	func: (function(cmd, callback, op, via, extra) {
 		var acc = bot.aliasToAcc(cmd[1]);
 		var name = cmd[2];
 		if (!acc || acc == "*" || acc == "all") {
@@ -4277,10 +4914,18 @@ function runCommand(cmd, callback, output, via, extra) { //via: steam, cmd
 		} else {
 			return true;
 		}
-	}
-	if (cmd[0] == "exit") {
-		if (via === "steam" && !settings["exit_via_chat"]) {
-			op("Exiting via steam chat is disabled");
+	})
+});
+bot.cmds.addCommand({
+	name: "exit",
+	ctx: bot.cmds.context.ALL,
+	categories: ["app"],
+	flags: {
+		useCallback: true
+	},
+	func: (function(cmd, callback, op, via, extra) {
+		if (via !== "cmd" && !settings["exit_via_chat"]) {
+			op("Exiting via chat is disabled");
 			if (callback) {
 				return callback();
 			} else {
@@ -4288,10 +4933,27 @@ function runCommand(cmd, callback, output, via, extra) { //via: steam, cmd
 			}
 		}
 		//kill script
+		if (bot.preExit && typeof bot.preExit == "function") {
+			bot.preExit();
+		}
+		try {
+			op("Exit command received");
+		} catch(err) {
+
+		}
+		console.log("Exiting due to command...");
 		process.exit();
 		return true;
-	}
-	if (cmd[0] == "add") {
+	})
+});
+bot.cmds.addCommand({
+	name: "add",
+	ctx: bot.cmds.context.ALL,
+	categories: ["account"],
+	flags: {
+		useCallback: true
+	},
+	func: (function(cmd, callback, op, via, extra) {
 		if (via === "steam") {
 			op("Adding accounts via steam chat is not possible");
 			if (callback) {
@@ -4307,8 +4969,16 @@ function runCommand(cmd, callback, output, via, extra) { //via: steam, cmd
 		} else {
 			return true;
 		}
-	}
-	if (cmd[0] == "idle") {
+	})
+});
+bot.cmds.addCommand({
+	name: "idle",
+	ctx: bot.cmds.context.ALL,
+	categories: ["account", "visual", "game", "idle"],
+	flags: {
+		useCallback: true
+	},
+	func: (function(cmd, callback, op, via, extra) {
 		var user = bot.aliasToAcc(cmd[1]);
 		if (!user || user == "all" || user == "*") {
 			user = null;
@@ -4376,8 +5046,16 @@ function runCommand(cmd, callback, output, via, extra) { //via: steam, cmd
 		} else {
 			return true;
 		}
-	}
-	if (cmd[0] == "w2p") {
+	})
+});
+bot.cmds.addCommand({
+	name: "w2p",
+	ctx: bot.cmds.context.ALL,
+	categories: ["account", "visual", "game", "idle"],
+	flags: {
+		useCallback: true
+	},
+	func: (function(cmd, callback, op, via, extra) {
 		var acc = cmd[1];
 		var accs = [];
 		if (!acc) {
@@ -4400,8 +5078,16 @@ function runCommand(cmd, callback, output, via, extra) { //via: steam, cmd
 		} else {
 			return true;
 		}
-	}
-	if (cmd[0] == "addfriend") {
+	})
+});
+bot.cmds.addCommand({
+	name: "addfriend",
+	ctx: bot.cmds.context.ALL,
+	categories: ["account", "friends"],
+	flags: {
+		useCallback: true
+	},
+	func: (function(cmd, callback, op, via, extra) {
 		var frid = cmd[2];
 		var acc = bot.aliasToAcc(cmd[1]);
 		if (!frid) {
@@ -4413,6 +5099,20 @@ function runCommand(cmd, callback, output, via, extra) { //via: steam, cmd
 		}
 		if (!frid) {
 			op("No friend id specified");
+			if (callback) {
+				return callback();
+			} else {
+				return false;
+			}
+		}
+		frid = new SteamID(frid);
+		if (!frid || !frid.isValid()) {
+			op("Invalid steam id");
+			if (callback) {
+				return callback();
+			} else {
+				return false;
+			}
 		}
 		try {
 			if (!acc) {
@@ -4475,8 +5175,16 @@ function runCommand(cmd, callback, output, via, extra) { //via: steam, cmd
 		} else {
 			return true;
 		}
-	}
-	if (cmd[0] == "msg") {
+	})
+});
+bot.cmds.addCommand({
+	name: "msg",
+	ctx: bot.cmds.context.ALL,
+	categories: ["messages", "friends"],
+	flags: {
+		useCallback: true
+	},
+	func: (function(cmd, callback, op, via, extra) {
 		var msg = cmd[3];
 		var frid = cmd[2];
 		var acc = bot.aliasToAcc(cmd[1]);
@@ -4490,9 +5198,19 @@ function runCommand(cmd, callback, output, via, extra) { //via: steam, cmd
 		}
 		if (!msg) {
 			op("No message specified");
+			if (callback) {
+				return callback();
+			} else {
+				return false;
+			}
 		}
 		if (!frid) {
 			op("No friend id specified");
+			if (callback) {
+				return callback();
+			} else {
+				return false;
+			}
 		}
 		try {
 			if (!acc) {
@@ -4519,8 +5237,16 @@ function runCommand(cmd, callback, output, via, extra) { //via: steam, cmd
 		} else {
 			return true;
 		}
-	}
-	if (cmd[0] == "wallet") {
+	})
+});
+bot.cmds.addCommand({
+	name: "wallet",
+	ctx: bot.cmds.context.ALL,
+	categories: ["account"],
+	flags: {
+		useCallback: true
+	},
+	func: (function(cmd, callback, op, via, extra) {
 		var acc = bot.aliasToAcc(cmd[1]);
 		if (!acc) {
 			var total = {};
@@ -4575,8 +5301,16 @@ function runCommand(cmd, callback, output, via, extra) { //via: steam, cmd
 		} else {
 			return true;
 		}
-	}
-	if (cmd[0] == "redirect") {
+	})
+});
+bot.cmds.addCommand({
+	name: "redirect",
+	ctx: bot.cmds.context.ALL,
+	categories: ["account", "messages"],
+	flags: {
+		useCallback: true
+	},
+	func: (function(cmd, callback, op, via, extra) {
 		//redirectTo
 		var acc = bot.aliasToAcc(cmd[1]);
 		var to = bot.dictOrAliasToAcc(cmd[2]);
@@ -4624,8 +5358,16 @@ function runCommand(cmd, callback, output, via, extra) { //via: steam, cmd
 		} else {
 			return true;
 		}
-	}
-	if (cmd[0] == "newfriends") {
+	})
+});
+bot.cmds.addCommand({
+	name: "newfriends",
+	ctx: bot.cmds.context.ALL,
+	categories: ["account", "friends"],
+	flags: {
+		useCallback: true
+	},
+	func: (function(cmd, callback, op, via, extra) {
 		var cmd1 = cmd[1];
 		var acc = bot.aliasToAcc(cmd[2]);
 		if (cmd1 == "clear") {
@@ -4678,8 +5420,16 @@ function runCommand(cmd, callback, output, via, extra) { //via: steam, cmd
 				return true;
 			}
 		}
-	}
-	if (cmd[0] == "cardstatus") {
+	})
+});
+bot.cmds.addCommand({
+	name: "cardstatus",
+	ctx: bot.cmds.context.ALL,
+	categories: ["account", "game", "idle", "cards"],
+	flags: {
+		useCallback: true
+	},
+	func: (function(cmd, callback, op, via, extra) {
 		var acc = bot.aliasToAcc(cmd[1]);
 		if (!acc || acc == "*" || acc == "all") {
 			acc = null;
@@ -4725,24 +5475,17 @@ function runCommand(cmd, callback, output, via, extra) { //via: steam, cmd
 		} else {
 			return;
 		}
-	}
-	if (cmd[0] == "ext") {
-		var ext = cmd[1];
-		try {
-			if (!ext) {
-				throw Error("No extension provided");
-			}
-			bot.loadExtension(ext, op);
-		} catch(err) {
-			op("An error occured: "+err);
-		}
-		if (callback) {
-			return callback();
-		} else {
-			return;
-		}
-	}
-	if (cmd[0] == "state") {
+	})
+});
+bot.cmds.addCommand({
+	name: "state",
+	ctx: bot.cmds.context.ALL,
+	categories: ["account", "visual"],
+	stability: "unstable",
+	flags: {
+		useCallback: true
+	},
+	func: (function(cmd, callback, op, via, extra) {
 		var states = {
 			"gold": 4,
 			"golden": 4,
@@ -4784,28 +5527,23 @@ function runCommand(cmd, callback, output, via, extra) { //via: steam, cmd
 		} else {
 			return;
 		}
-	}
-	if (cmd[0] == "badgepagelength") {
-		var acc = bot.aliasToAcc(cmd[1]);
+	})
+});
+bot.cmds.addCommand({
+	name: "ext",
+	ctx: bot.cmds.context.ALL,
+	categories: ["app", "extensions"],
+	behavior: "unstable",
+	flags: {
+		useCallback: true
+	},
+	func: (function(cmd, callback, op, via, extra) {
+		var ext = cmd[1];
 		try {
-			throw Error("Command disabled due to breaking the card idling. Edit the script to reenable this command");
-			if (!acc) {
-				throw Error("No account supplied. This command may not be applied to all accounts at once");
+			if (!ext) {
+				throw Error("No extension provided");
 			}
-			if (!users[acc]) {
-				throw Error(bot.prepareNameForOutput(acc)+" currently isn't logged in");
-			}
-			var bp = [1, 2, 1337];
-			var bpi = 0;
-			var f = function() {
-				if (bpi >= bp.length) {
-					return;
-				}
-				var cbp = bp[bpi++];
-				users[acc].cardPage = cbp;
-				cardCheck(users[acc], f, true);
-			}
-			f();
+			bot.loadExtension(ext, op);
 		} catch(err) {
 			op("An error occured: "+err);
 		}
@@ -4814,20 +5552,17 @@ function runCommand(cmd, callback, output, via, extra) { //via: steam, cmd
 		} else {
 			return;
 		}
-	}
-	if (cmd[0] == "persona") {
-		try {
-			bot.steam.getPersona("76561198135386775", x=>x, users[Object.keys(users)[0]]);
-		} catch(err) {
-			console.log(err);
-		}
-		if (callback) {
-			return callback();
-		} else {
-			return true;
-		}
-	}
-	if (cmd[0] == "names") {
+	})
+});
+bot.cmds.addCommand({
+	name: "names",
+	ctx: bot.cmds.context.ALL,
+	categories: ["account"],
+	stability: "uncertain",
+	flags: {
+		useCallback: true
+	},
+	func: (function(cmd, callback, op, via, extra) {
 		try {
 			var acc = bot.aliasToAcc(cmd[1]);
 			if (!acc) {
@@ -4913,112 +5648,16 @@ function runCommand(cmd, callback, output, via, extra) { //via: steam, cmd
 		} else {
 			return;
 		}
-	}
-	if (cmd[0] == "opt") {
-		var acc = bot.aliasToAcc(cmd[1]);
-		if (!acc || acc == "*" || acc == "all") {
-			acc = null;
-		}
-		var appaccs = {};
-		try {
-			if (!acc) {
-				appaccs = users;
-			} else {
-				if (!users[acc]) {
-					throw Error(bot.prepareNameForOutput(acc)+" currently isn't logged in");
-				}
-				appaccs[acc] = users[acc];
-			}
-			for (var i in appaccs) {
-				var o = appaccs[i].opts;
-				var os = JSON.stringify(o);
-				op(i+": "+os);
-			}
-		} catch(err) {
-			op("An error occured: "+err);
-		}
-		if (callback) {
-			return callback();
-		} else {
-			return;
-		}
-	}
-	if (cmd[0] == "optcomb") {
-		var acc = bot.aliasToAcc(cmd[1]);
-		if (!acc || acc == "*" || acc == "all") {
-			acc = null;
-		}
-		var appaccs = {};
-		try {
-			if (!acc) {
-				appaccs = users;
-			} else {
-				if (!users[acc]) {
-					throw Error(bot.prepareNameForOutput(acc)+" currently isn't logged in");
-				}
-				// appaccs.push(users[acc]);
-				appaccs[acc] = users[acc];
-			}
-			for (var i in appaccs) {
-				var oc = appaccs[i].getOptComb("games_blacklist");
-				var ocs = JSON.stringify(oc);
-				op(bot.prepareNameForOutput(i)+": "+ocs);
-			}
-		} catch(err) {
-			op("An error occured: "+err);
-		}
-	}
-	if (cmd[0] == "testaccs") {
-		var str = bot.aliasToAcc(cmd[1]); //TODO: implement alias in getAccs, remove it here
-		var r = getAccs(str);
-		op(JSON.stringify(r));
-		if (callback) {
-			return callback();
-		} else {
-			return;
-		}
-	}
-	if (cmd[0] == "curidling") {
-		var acc = bot.aliasToAcc(cmd[1]);
-		try {
-			if (!acc) {
-				throw Error("No account supplied. This command may not be applied to all accounts at once");
-			}
-			if (!users[acc]) {
-				throw Error(bot.prepareNameForOutput(acc)+" currently isn't logged in");
-			}
-			var ci = users[acc].curIdling;
-			var cis = JSON.stringify(ci);
-			op(bot.prepareNameForOutput(acc)+": "+cis);
-		} catch(err) {
-			op("An error occured: "+err);
-		}
-		if (callback) {
-			return callback();
-		} else {
-			return;
-		}
-	}
-	if (cmd[0] == "cards") {
-		var acc = bot.aliasToAcc(cmd[1]);
-		try {
-			if (!acc) {
-				throw Error("No account supplied. This command may not be applied to all accounts at once");
-			}
-			if (!users[acc]) {
-				throw Error(bot.prepareNameForOutput(acc)+" currently isn't logged in");
-			}
-			checkCardsCmd(users[acc], op);
-		} catch(err) {
-			op("An error occured: "+err);
-		}
-		if (callback) {
-			return callback();
-		} else {
-			return;
-		}
-	}
-	if (cmd[0] == "afk") {
+	})
+});
+bot.cmds.addCommand({
+	name: "afk",
+	ctx: bot.cmds.context.ALL,
+	categories: ["account", "messages", "friends"],
+	flags: {
+		useCallback: true
+	},
+	func: (function(cmd, callback, op, via, extra) {
 		var acc = bot.aliasToAcc(cmd[1]);
 		var msg = cmd[2] || settings["afk_defaultmsg"];
 		if (!acc || acc == "*" || acc == "all") {
@@ -5064,45 +5703,243 @@ function runCommand(cmd, callback, output, via, extra) { //via: steam, cmd
 		} else {
 			return true;
 		}
-	}
-	if ((["admin"]).includes(cmd[0])) {
-		op("\n ================== > All Admin Commands < ================= \n Here is a list with all Admin commands. | Info > - Use * to select all Accs \n \n ~~~~~~~~~~~~~~~~~~ > Bot Control features < ~~~~~~~~~~~~~~~~~ \n 1. !idle <user or *> <ID/gp or \"your message\">: to start idling games. \n 2. !idle <user or *>: stop to stop idling. \n 3. !addfriend <user or *> <steamid64>: to add a friend with all or one Acc. \n 4. !newfriends <acc or *>: to see all new automatically accepted friends. \n 5. !newfriends clear <user or *>: to clean the list. \n 6. !redirect <user or *> <steam64id>: to redirect all msgs to an Acc. \n 7. !msg <user or *> <steam64id> <msg>: to send a msg to other users. \n 8. !wallet <user or *>: to see how much money you have. \n 9. !afk <user or *> <on or off>: to automatically send an afk msg. \n 10. !uimode [<user or *>] [<phone, web, big_picture (bp) or desktop>]: to change the ui mode. \n 11. !name [<user or *>] <name>: to change the name. \n 12. !help: to see all public commands. \n ===================================================");
+	})
+});
+
+//SECTION: debug commands
+bot.cmds.addCommand({
+	name: "accounts",
+	ctx: bot.cmds.context.ALL,
+	categories: ["debug"],
+	flags: {
+		useCallback: true
+	},
+	func: (function(cmd, callback, op, via, extra) {
+		for (var i in users) {
+			if (bot.getSetting("debug_replacename")) {
+				op(bot.prepareNameForOutput(i));
+			} else {
+				op(i);
+			}
+		}
+		if (callback) {
+			return callback();
+		} else {
+			return;
+		}
+	})
+});
+bot.cmds.addCommand({
+	name: "badgepagelength",
+	ctx: bot.cmds.context.ALL,
+	categories: ["debug", "cards"],
+	stability: "unstable",
+	flags: {
+		useCallback: true
+	},
+	func: (function(cmd, callback, op, via, extra) {
+		var acc = bot.aliasToAcc(cmd[1]);
+		try {
+			throw Error("Command disabled due to breaking the card idling. Edit the script to reenable this command");
+			if (!acc) {
+				throw Error("No account supplied. This command may not be applied to all accounts at once");
+			}
+			if (!users[acc]) {
+				throw Error(bot.prepareNameForOutput(acc)+" currently isn't logged in");
+			}
+			var bp = [1, 2, 1337];
+			var bpi = 0;
+			var f = function() {
+				if (bpi >= bp.length) {
+					return;
+				}
+				var cbp = bp[bpi++];
+				users[acc].cardPage = cbp;
+				cardCheck(users[acc], f, true);
+			}
+			f();
+		} catch(err) {
+			op("An error occured: "+err);
+		}
+		if (callback) {
+			return callback();
+		} else {
+			return;
+		}
+	})
+});
+bot.cmds.addCommand({
+	name: "persona",
+	ctx: bot.cmds.context.ALL,
+	categories: ["debug"],
+	flags: {
+		useCallback: true
+	},
+	func: (function(cmd, callback, op, via, extra) {
+		try {
+			bot.steam.getPersona("76561198135386775", x=>x, users[Object.keys(users)[0]]);
+		} catch(err) {
+			console.log(err);
+		}
 		if (callback) {
 			return callback();
 		} else {
 			return true;
 		}
-	}
-	var helpv = 2;
-	var helpcmds = ["help", "ahelp"];
-	if ((helpcmds).includes(cmd[0]) && helpv === 1) { //old help, replaced by new system
-		op("add <user>: adds a user to the database [CURRENTLY NOT SUPPORTED]");
-		op("");
-		op("login <user>: login");
-		op("");
-		op("logout [<user>]: logout with specified user/all users");
-		op("");
-		op("idle [<user>] [<games>]: idle the specified games with the specified user");
-		op("~<user> is the name of the account you want to idle on");
-		op("no user, '*' and 'all' will result in all logged in users idling");
-		op("~<games> is either a list of game ids (separated with ','),\na game preset or a custom game");
-		op("");
-		op("addfriend [<user>] <newfriend>: add <newfriend> to your friend list");
+	})
+});
+bot.cmds.addCommand({
+	name: "opt",
+	ctx: bot.cmds.context.ALL,
+	categories: ["debug"],
+	flags: {
+		useCallback: true
+	},
+	func: (function(cmd, callback, op, via, extra) {
+		var acc = bot.aliasToAcc(cmd[1]);
+		if (!acc || acc == "*" || acc == "all") {
+			acc = null;
+		}
+		var appaccs = {};
+		try {
+			if (!acc) {
+				appaccs = users;
+			} else {
+				if (!users[acc]) {
+					throw Error(bot.prepareNameForOutput(acc)+" currently isn't logged in");
+				}
+				appaccs[acc] = users[acc];
+			}
+			for (var i in appaccs) {
+				var o = appaccs[i].opts;
+				var os = JSON.stringify(o);
+				op(i+": "+os);
+			}
+		} catch(err) {
+			op("An error occured: "+err);
+		}
 		if (callback) {
 			return callback();
 		} else {
-			return true;
+			return;
 		}
-	}
-	if ((helpcmds).includes(cmd[0]) && helpv === 2) {
-		
+	})
+});
+bot.cmds.addCommand({
+	name: "optcomb",
+	ctx: bot.cmds.context.ALL,
+	categories: ["debug"],
+	flags: {
+		useCallback: true
+	},
+	func: (function(cmd, callback, op, via, extra) {
+		var acc = bot.aliasToAcc(cmd[1]);
+		if (!acc || acc == "*" || acc == "all") {
+			acc = null;
+		}
+		var appaccs = {};
+		try {
+			if (!acc) {
+				appaccs = users;
+			} else {
+				if (!users[acc]) {
+					throw Error(bot.prepareNameForOutput(acc)+" currently isn't logged in");
+				}
+				// appaccs.push(users[acc]);
+				appaccs[acc] = users[acc];
+			}
+			for (var i in appaccs) {
+				var oc = appaccs[i].getOptComb("games_blacklist");
+				var ocs = JSON.stringify(oc);
+				op(bot.prepareNameForOutput(i)+": "+ocs);
+			}
+		} catch(err) {
+			op("An error occured: "+err);
+		}
+	})
+});
+bot.cmds.addCommand({
+	name: "testaccs",
+	ctx: bot.cmds.context.ALL,
+	categories: ["debug"],
+	flags: {
+		useCallback: true
+	},
+	func: (function(cmd, callback, op, via, extra) {
+		var str = bot.aliasToAcc(cmd[1]); //TODO: implement alias in getAccs, remove it here
+		var r = getAccs(str);
+		op(JSON.stringify(r));
 		if (callback) {
 			return callback();
 		} else {
-			return true;
+			return;
 		}
-	}
-	if (cmd[0] == "alarms") {
+	})
+});
+bot.cmds.addCommand({
+	name: "curidling",
+	ctx: bot.cmds.context.ALL,
+	categories: ["debug", "idle"],
+	flags: {
+		useCallback: true
+	},
+	func: (function(cmd, callback, op, via, extra) {
+		var acc = bot.aliasToAcc(cmd[1]);
+		try {
+			if (!acc) {
+				throw Error("No account supplied. This command may not be applied to all accounts at once");
+			}
+			if (!users[acc]) {
+				throw Error(bot.prepareNameForOutput(acc)+" currently isn't logged in");
+			}
+			var ci = users[acc].curIdling;
+			var cis = JSON.stringify(ci);
+			op(bot.prepareNameForOutput(acc)+": "+cis);
+		} catch(err) {
+			op("An error occured: "+err);
+		}
+		if (callback) {
+			return callback();
+		} else {
+			return;
+		}
+	})
+});
+bot.cmds.addCommand({
+	name: "cards",
+	ctx: bot.cmds.context.ALL,
+	categories: ["debug", "cards"],
+	flags: {
+		useCallback: true
+	},
+	func: (function(cmd, callback, op, via, extra) {
+		var acc = bot.aliasToAcc(cmd[1]);
+		try {
+			if (!acc) {
+				throw Error("No account supplied. This command may not be applied to all accounts at once");
+			}
+			if (!users[acc]) {
+				throw Error(bot.prepareNameForOutput(acc)+" currently isn't logged in");
+			}
+			checkCardsCmd(users[acc], op);
+		} catch(err) {
+			op("An error occured: "+err);
+		}
+		if (callback) {
+			return callback();
+		} else {
+			return;
+		}
+	})
+});
+bot.cmds.addCommand({
+	name: "alarms",
+	ctx: bot.cmds.context.ALL,
+	categories: ["debug"],
+	flags: {
+		useCallback: true
+	},
+	func: (function(cmd, callback, op, via, extra) {
 		if (cmd[1] == "json" || true) {
 			op(JSON.stringify(alarms));
 		} else {
@@ -5113,8 +5950,16 @@ function runCommand(cmd, callback, output, via, extra) { //via: steam, cmd
 		} else {
 			return true;
 		}
-	}
-	if (cmd[0] == "friends") {
+	})
+});
+bot.cmds.addCommand({
+	name: "friends",
+	ctx: bot.cmds.context.CONSOLE,
+	categories: ["debug", "friends"],
+	flags: {
+		useCallback: true
+	},
+	func: (function(cmd, callback, op, via, extra) {
 		if (via == "steam") {
 			op("Cannot list friends via steam");
 			if (callback) {
@@ -5146,39 +5991,48 @@ function runCommand(cmd, callback, output, via, extra) { //via: steam, cmd
 		} else {
 			return true;
 		}
-	}
-	var extCmdExec = false;
-	var extCmds = bot.commands.getCommands();
-	for (var i in extCmds) {
-		if (!extCmds.hasOwnProperty(i)) {
-			continue;
-		}
-		if (cmd[0] == i) {
-			extCmdExec = true;
-			if (typeof extCmds[i]["func"] == "function") {
-				try {
-					extCmds[i]["func"](cmd, op, via, extra);
-				} catch(err) {
-					op("Error while executing command, check console for details");
-					console.log(err);
-				}
-			}
-		}
-	}
-	if (extCmdExec) {
-		if (callback) {
-			return callback();
-		} else {
-			return true;
-		}
-	}
-	// throw Error("Unhandled command");
-	op("Error: Unhandled command\nEnter 'help' for a list of commands");
-	if (callback) {
+	})
+});
+bot.cmds.addCommand({
+	name: "callbacks",
+	ctx: bot.cmds.context.CONSOLE,
+	categories: ["debug", "input"],
+	flags: {
+		useCallback: true
+	},
+	func: (function(cmd, callback, op, via, extra) {
+		op("Calling callback twice.");
 		callback();
-	}
-	return false;
-}
+		return callback();
+	})
+});
+bot.cmds.addCommand({
+	name: "nocallbacks",
+	ctx: bot.cmds.context.CONSOLE,
+	categories: ["debug", "input"],
+	flags: {
+		useCallback: false
+	},
+	func: (function(cmd, callback, op, via, extra) {
+		op("Calling callback twice even though useCallback is false.");
+		callback();
+		return callback();
+	})
+});
+
+//SECTION: public commands
+bot.cmds.addCommand({
+	name: "publictest",
+	ctx: bot.cmds.context.ALL,
+	categories: ["test"],
+	flags: {
+		useCallback: true
+	},
+	scope: "public",
+	func: (function() {
+		//
+	})
+});
 
 function checkForPublicCommand(sid, msg, user, name, authed) {
 	if (!settings["public_chat_bot"]) {
@@ -5464,6 +6318,7 @@ function checkForPublicCommand(sid, msg, user, name, authed) {
 			return true;
 		}
 	}
+	var cmds = bot.cmds.filterCommandsByFlags(bot.cmds.filterCommandsByScope(bot.cmds.getCommandsByFirstSegment(cmd.orig0), "public"), {disallowRun: false});
 	var extCmdExec = false;
 	var extCmds = bot.commands["public"].getCommands();
 	for (var i in extCmds) {
@@ -5491,9 +6346,24 @@ function checkForPublicCommand(sid, msg, user, name, authed) {
 	}
 }
 
+bot.preExitFunctions = [];
+bot.preExit = function preExit() {
+	bot.preExitFunctions.forEach(f => {
+		if (typeof f === "function") {
+			try {
+				f();
+			} catch(err) {
+				console.error("Error in preExit function:");
+				console.error(err);
+			}
+		}
+	});
+
+};
+
 bot.settingsUpdated = function settingsUpdated() { //TODO: provide old settings obj, reset tick interval ONLY IF DELAY CHANGED
 	mcKayStatsSettings();
-	
+
 	// bot.events.emit(); //emit statsUpdated event
 	bot.settings = settings || bot.settings;
 }
@@ -5541,15 +6411,30 @@ const toLogFile = function toLogFile() {
 		// l = false;
 		l = bot.getSetting("debug_logging");
 		if (l) {
+			var tS = function(x) {
+				try {
+					return x.toString();
+				} catch(e) {
+					if (x === null) {
+						return "null";
+					} else if (x === undefined) {
+						return "undefined";
+					} else {
+						return "Unknown";
+					}
+				}
+			}
 			var d = new Date();
 			var ds = (d.getFullYear() + "-" + dd(d.getMonth() + 1) + "-" + dd(d.getDate())+" "+dd(d.getHours())+":"+dd(d.getMinutes())+":"+dd(d.getSeconds()));
-			var str = Array.prototype.slice.apply(arguments).map(x => x.toString()).join(" ");
-			fs.writeFileSync("./bot.log", (true ? ds + " | " : "") + str + "\n", {flag: "a"});
+			var str = Array.prototype.slice.apply(arguments).map(x => tS(x)).join(" ");
+			fs.writeFileSync(bot.getLogFolder()+"/bot.log", (true ? ds + " | " : "") + str + "\n", {flag: "a"});
 		}
 	} catch(err) {
 		cl("Error writing to log:", err);
 	}
 };
+bot.directConsoleLog = cl;
+bot.directConsoleError = ce;
 console.log = function log() {
 	toLogFile.apply(null, arguments);
 	cl.apply(console, arguments);
@@ -5575,6 +6460,44 @@ timing.stop();
 if (process.argv.includes("timing")) {
 	timing.printDetails();
 }
+if (process.argv.includes("write-memory-stats")) {
+	var file = "sijs_memory.log";
+	console.log("Logging memory stats to "+file);
+	var fh = fs.openSync(file, "a");
+	var ival = null;
+	var wr = function(str) {
+		if (!fh) {
+			return;
+		}
+		fs.writeSync(fh, str+os.EOL);
+	};
+	bot.preExitFunctions.push(function() {
+		if (fh !== null && fh !== undefined) {
+			fs.closeSync(fh);
+			fh = null;
+		}
+		if (ival !== null) {
+			clearInterval(ival);
+			ival = null;
+		}
+	});
+	var firstLog = function() {
+		var ar = ["Date/Time"+" ".repeat(8), "Current Memory Usage", "Allocated Memory", "Ratio"];
+		wr(ar.join("\t"));
+	}
+	var log = function() {
+		var ar = [];
+		ar.push(bot.formatDate(new Date()));
+		var md = process.memoryUsage();
+		ar.push(md.heapUsed+" ".repeat(8));
+		ar.push(md.heapTotal+" ".repeat(8));
+		ar.push(md.heapUsed / md.heapTotal);
+		wr(ar.join("\t"));
+	};
+	ival = setInterval(log, 1000*60*60);
+	firstLog();
+	log();
+}
 for (var i = 0; i < process.argv.length; i++) {
 	var sS = "debug:";
 	if (process.argv[i].substr(0, sS.length) === sS) {
@@ -5585,6 +6508,17 @@ for (var i = 0; i < process.argv.length; i++) {
 }
 if (process.argv.includes("writebadgepage")) {
 	bot.writebadgepage = true;
+}
+let aExt = process.argv.indexOf("--ext"); //for automatic startup
+if (aExt >= 0 && aExt < process.argv.length - 1) {
+	var exts = process.argv[aExt + 1];
+	exts = exts.split(",");
+	for (var i = 0; i < exts.length; i++) {
+		var e = exts[i];
+		if (e && e.length > 0) {
+			bot.loadExtension(e);
+		}
+	}
 }
 
 process.on("uncaughtException", function(err) {
@@ -5598,11 +6532,32 @@ process.on("uncaughtException", function(err) {
 	var errs = (true ? (d.getFullYear() + "-" + dd(d.getMonth() + 1) + "-" + dd(d.getDate())+" "+dd(d.getHours())+":"+dd(d.getMinutes())+":"+dd(d.getSeconds())+" | ") : "")+err.toString()+"\n";
 	errs += err.stack || "";
 	if (err.stack) {
-		errs += "\n";
+		errs += os ? (os.EOL || "\n") : "\n";
+	}
+	let folder = ".";
+	try {
+		let f = bot.getSetting("logFolder", ".");
+		if (fs.existsSync(f)) {
+			let isDir = fs.statSync(f).isDirectory();
+			if (isDir) {
+				folder = f;
+			} else {
+
+			}
+			// throw Error("All good, just ending try-catch-block lul");
+		} else {
+			fs.mkdirSync(f);
+			if (fs.existsSync(f) && fs.statSync(f).isDirectory()) {
+				folder = f;
+			}
+		}
+	} catch(_) {
+		//ignore and go on
 	}
 	try {
-		fs.writeFileSync("./error.log", errs, {flag: "a"});
+		fs.writeFileSync(folder+"/error.log", errs, {flag: "a"});
 		console.log("Uncaught exception. Check error.log for details.");
+		console.log(err.stack ? err.stack : err);
 	} catch(err2) {
 		console.log("Uncaught exception. Error while writing to error.log");
 		console.log("Writing error:", err2);
@@ -5611,7 +6566,7 @@ process.on("uncaughtException", function(err) {
 	try {
 		toLogFile.apply(null, [errs]);
 	} catch(e) {
-		
+
 	}
 	try {
 		for (let i = 0; i < bot.allowedExceptions.length; i++) {
@@ -5622,7 +6577,7 @@ process.on("uncaughtException", function(err) {
 			}
 		}
 	} catch(err) {
-		
+
 	}
 	console.log("Exiting...");
 	process.exit(1);
