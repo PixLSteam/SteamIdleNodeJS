@@ -4207,6 +4207,7 @@ bot.executeCommand = function executeCommand(data) {
 	var noPrefix = data.noPrefix;
 	var cmd = parseCommand(data.message);
 	var extra = data.extra || {};
+	extra.data = data;
 	if (data.contextObject) {
 		extra.contextObject = data.contextObject;
 	}
@@ -6363,6 +6364,15 @@ bot.cmds.addCommand({
 		//
 	})
 });
+bot.cmds.addCommand({
+	name: "authed",
+	ctx: bot.cmds.context.ALL,
+	categories: [],
+	scope: "public",
+	func: (function(cmd, callback, op, via, extra) {
+		op("You are "+((extra && extra.data && extra.data.authed) ? "" : "not ")+"authed");
+	})
+});
 
 function checkForPublicCommand(sid, msg, user, name, authed) {
 	if (!settings["public_chat_bot"]) {
@@ -6522,7 +6532,7 @@ function checkForPublicCommand(sid, msg, user, name, authed) {
 		}
 		return true;
 	}
-	if (cmd[0] === "authed") {
+	if (cmd[0] === "authed" && false) {
 		user.chatMessage(sid, "You are "+(authed ? "" : "not ")+"authed");
 		return true;
 	}
