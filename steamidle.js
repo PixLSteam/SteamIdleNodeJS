@@ -43,6 +43,11 @@ var manifestFile = "manifest.json";
 var bot = {};
 global.bot = bot;
 
+bot.startupFuncs = [];
+bot.onStart = function onStart(f) {
+	bot.startupFuncs.push(f);
+};
+
 bot.allowedExceptions = [];
 
 bot.inviSpace = "\uFEFF";
@@ -731,6 +736,82 @@ bot.SteamBotExtInterface.prototype.getName = function getName() {
 	return this.name || (typeof this.ext == "string" ? this.ext : "unknown");
 };
 
+bot.Context = function Context(data) {
+	this.data = bot.cloneSimple(data);
+};
+bot.Context.prototype.sendMessage = function sendMessage() {
+	console.log.apply(this, Array.prototype.slice.apply(arguments));
+};
+bot.Context.prototype.sendMessage.acceptsVarArg = true; //tell code running this that it is okay to pass multiple args which are allowed to be of all(?) types
+bot.Context.fromDataString = function() {
+	return new bot.Context({}); //doesn't make sense to have any data in this (rn)
+};
+bot.onStart(function() {
+	bot.Context.prototype.context = bot.cmds.context.CONSOLE;
+});
+
+
+
+bot.SteamChatContext = class SteamChatContext extends bot.Context {
+	constructor(data) {
+		super(...arguments);
+		this.ChatEntryType = data.ChatEntryType || SteamUser.EChatEntryType.ChatMsg;
+	}
+	getSteamID() {
+		try {
+			return bot.steamID(this.data.steamID || this.data.sid);
+		} catch(_) {
+			return null; //TODO: add error handling if not the error from wrong input on SteamID
+		}
+	}
+	getUser() {
+		return bot.users[this.getUsername()] || this.data.user; //send back current version of the user or the (possibly) old one
+	}
+	getUsername() {
+		return typeof this.data.user === "string" ? this.data.user : this.data.user.name;
+	}
+	sendMessage() {
+		var str = Array.prototype.slice.apply(arguments).map(bot._toString).join("\t");
+		var user = this.getUser()
+		var sid = this.getSteamID()
+		if (user && user.steamID && sid) {
+			user.chatMessage(sid, str, this.ChatEntryType || SteamUser.EChatEntryType.ChatMsg);
+			return true;
+		} else {
+			return false;
+		}
+	}
+	toString() {
+		return (this.context || this.data.context || bot.cmds.context.STEAM) + ":" + this.getUsername() + ":" + this.getSteamID().getSteamID64();
+	}
+	static fromDataString(data, ctx) {
+		try {
+			var ioc = data.indexOf(":");
+			if (ioc < 0 ) {
+				return false;
+			}
+			var usern = data.substr(0, ioc);
+			var sid = data.substr(ioc);
+			sid = bot.steamID(sid);
+			var user = bot.users[usern];
+			if (user && sid && sid.getSteamID64()) {
+				var d = {
+					steamID: sid,
+					user: user
+				};
+				d.sid = d.steamID;
+				return new bot.SteamChatContext(d);
+			}
+			return false;
+		} catch(_) {
+			return false;
+		}
+	}
+}
+bot.onStart(function() {
+	bot.SteamChatContext.prototype.context = bot.cmds.context.STEAM;
+});
+
 var tickHandle;
 
 var users = {};
@@ -979,6 +1060,9 @@ bot.events.getListeners = function getListeners(evt) {
 	return clone(bot.events.listeners[evt] || {});
 };
 bot.events.emit = function emit(evt, args, opts) {
+	if (bot.killed) { //do not emit any events when the bot has been killed
+		return;
+	}
 	opts = opts || {};
 	var l = bot.events.getListeners(evt);
 	for (var i in l) {
@@ -1090,6 +1174,7 @@ bot.cmds.addCommand = function addCommand(data) {
 	var prefix = data.prefix || bot.cmds.defaultPrefix || "!";
 	var func = data.func;
 	var scope = data.scope || bot.cmds.defaultScope;
+	var nonce = data.nonce || false;
 	if (typeof ctx !== "object") {
 		ctx = [ctx];
 	}
@@ -1110,8 +1195,26 @@ bot.cmds.addCommand = function addCommand(data) {
 	d.scope = scope;
 	Object.assign(d.flags, typeof data.flags == "object" ? data.flags : {});
 	d.ctx = typeof ctx == "object" && (Array.isArray ? Array.isArray(ctx) : ctx instanceof Array) ? ctx : [bot.cmds.context.ALL];
+	d.nonce = nonce;
+
+	if (nonce) {
+		bot.cmds.removeCommandsByNonce(nonce);
+	}
 
 	bot.cmds.list.push(d);
+};
+bot.cmds.removeCommandsByNonce = function removeCommandsByNonce(nonce) {
+	var splice = [];
+	for (var i = 0; i < bot.cmds.list.length; i++) {
+		var c = bot.cmds.list[i];
+		if (c.nonce == nonce) {
+			splice.push(i);
+		}
+	}
+	for (var i = splice.length - 1; i >= 0; i--) {
+		var idx = splice[i];
+		bot.cmds.list.splice(idx, 1);
+	}
 };
 bot.cmds.getCommands = function getCommands() {
 	return bot.cmds.list.concat();
@@ -1164,6 +1267,32 @@ bot.cmds.filterCommandsByFlags = function filterCommandsByFlags(cmds, flags, fun
 };
 bot.cmds.getCommandsByFlags = function getCommandsByFlags(flags, func) {
 	return bot.cmds.filterCommandsByFlags(bot.cmds.getCommands(), flags, func);
+};
+
+bot.cmds.ctxObjs = {};
+bot.cmds.registerContextObject = function registerContextObject(ctx, cls) {
+	bot.cmds.ctxObjs[ctx] = cls;
+};
+bot.cmds.getContextObject = function getContextObject(ctx) {
+	return bot.cmds.ctxObjs[ctx];
+};
+bot.cmds.createContextObject = function createContextObject(ctx, data) {
+	var cobj = bot.cmds.getContextObject(ctx);
+	if (!cobj) {
+		return false;
+	}
+	return new cojb(data);
+};
+bot.cmds.createContextObjectFromString = function createContextObjectFromString(str) {
+	var s = str;
+	var ioc = s.indexOf(":");
+	var ctx = s.substr(0, ioc);
+	s = s.substr(ioc + 1);
+	var cobj = bot.cmds.getContextObject(ctx);
+	if (!cobj) {
+		return false;
+	}
+	return cojb.fromDataString(s);
 };
 
 bot.commands = {};
@@ -1386,6 +1515,42 @@ bot.util.json.stringify = function stringify(obj, pretty) {
 		return v;
 	}, s).replace(/\u2028/g, '\\u2028').replace(/\u2029/g, '\\u2029');
 };
+
+function multiCb(count, cb) {
+	var ar = [];
+	var res = [];
+	for (var i = 0; i < count; i++) {
+		// var i2 = i;
+		var f = (() => {
+			var i2 = i;
+			return function() {
+				console.log(i2);
+				if (!res[i2]) {
+					res[i2] = true;
+					var ex = true;
+					for (var i3 = 0; i3 < res.length; i3++) {
+						if (!res[i3]) {
+							ex = false;
+							break;
+						}
+					}
+					if (ex) {
+						if (cb && typeof cb == "function") {
+							cb();
+						}
+					}
+				}
+			}
+		})();
+		res.push(false);
+		ar.push(f);
+	}
+	if (count == 0) {
+		setTimeout(cb, 10);
+	}
+	return ar;
+}
+bot.util.multiCb = multiCb;
 
 bot.addAdminHelp = function(cmd, h) {
 	bot.admin.help[cmd] = cloneRecur(h);
@@ -2991,6 +3156,7 @@ function parsePeriod(period) {
 	}
 	return sec;
 }
+bot.util.parsePeriod = parsePeriod;
 
 function checkAlarms() {
 	var curDate = new Date();
@@ -3270,6 +3436,9 @@ function login(name, pw, authcode, secret, games, online, callback, opts) {
 	});
 
 	user.on("friendMessage", function onFriendMessageHandler(sid, msg) {
+		if (bot.killed) {
+			return;
+		}
 		if (!user.steamID) {
 			bot.error("Message received on account without steam id - "+bot.prepareNameForOutput(user.name));
 			return;
@@ -3799,9 +3968,19 @@ bot.emulateCommand = function emulateCommand(cmd, opt = {}) {
 	var log = [];
 	var f = function() {
 		log.push(arguments);
+		if (opt.op) {
+			try {
+				opt.op.apply(opt, Array.prototype.slice.apply(arguments));
+			} catch(_) {
+
+			}
+		}
 	}
 	var cb = function() {
 		//do nothing?
+		if (typeof opt.cb == "function") {
+			opt.cb();
+		}
 	}
 	try {
 		runCommand(p, cb, f, opt["via"] || "emulation", {noPrefix: !opt.requirePrefix});
@@ -3856,7 +4035,7 @@ function openCMD() {
 			var extra = {};
 			extra.prefs = prefs;
 			extra.noPrefix = true;
-			runCommand(p, next, getDefaultOutput(), "cmd", extra);
+			runCommand(p, next, getDefaultOutput(), "console", extra); //CHANGED: via for console changed from cmd to console
 		} catch(err) {
 			//register error
 			// console.log("Error running command: "+err);
@@ -4014,6 +4193,125 @@ function parseCommand(cmd, ext, opt) {
 		return out;
 	}
 }
+bot.executeCommand = function executeCommand(data) {
+	var op = data.op || (data.contextObject && function(...msg) {return data.contextObject.sendMessage(...msg);}) || (() => {});
+	var callback = data.callback || data.cb || (() => {});
+	callback = typeof callback == "function" ? callback : () => {};
+	op("Beep beep bot.executeCommand feedback");
+	if (data.contextObject) {
+		data.contextObject.sendMessage("meow");
+	}
+	console.log("bot.executeCommand executed");
+	// var cb;
+	var authed = data.authed;
+	var noPrefix = data.noPrefix;
+	var cmd = parseCommand(data.message);
+	var extra = data.extra || {};
+	if (data.contextObject) {
+		extra.contextObject = data.contextObject;
+	}
+	var ctx = false;
+	if (typeof data.context === "string") {
+		ctx = data.context;
+	} else if (data.contextObject && typeof data.contextObject.context === "string") {
+		ctx = data.contextObject.context;
+	}
+	var via = ctx || "emulated";
+	cmd.cmd0 = cmd[0].substr(1);
+	console.log("parsed command: ["+cmd.join(",")+"]")
+	//TODO: use bot.getAdvancedOutput(op) ???
+	//TODO: code below was pasted from runCommand => fix + allow public cmds, also check authed
+	var callbackInExternal = false;
+	var extCmdExec = false;
+	// var prefs = extra.prefs || [];
+	var cmds = noPrefix ? bot.cmds.getCommandsByName(cmd[0]) : bot.cmds.getCommandsByFirstSegment(cmd[0]);
+	// cmds = bot.cmds.filterCommandsByFlags(bot.cmds.filterCommandsByScope(cmds, "admin"), {disallowRun: false});
+	cmds = bot.cmds.filterCommandsByFlags(cmds, {disallowRun: false});
+	if (ctx) {
+		cmds = bot.cmds.filterCommandsByContext(cmds, ctx);
+	}
+	if (!authed) {
+		cmds = bot.cmds.filterCommandsByScope(cmds, "public");
+	}
+	if (cmds.length > 1) {
+		op("Found "+cmds.length+" commands with this name. Please check for interfering extensions.");
+		return callback();
+	}
+	var cmdExec = false;
+	if (cmds.length > 0) {
+		var call = [];
+		for (var i = 0; i < cmds.length; i++) {
+			if (cmds[i].func && typeof cmds[i].func === "function") {
+				if (cmds[i].flags.useCallback) {
+					callbackInExternal = true;
+				}
+				call.push(cmds[i].func);
+			}
+		}
+		if (call.length > 1) { //doesn't make any sense
+			op("Multiple commands found, please check for interfering extensions. Not executing your command.");
+		}
+		if (call.length == 1) {
+			var callbackCalled = false;
+			try {
+				var cb = () => null;
+				if (callbackInExternal) {
+					cb = function() {
+						if (callbackCalled) {
+							return;
+						}
+						callbackCalled = true;
+						if (callback) {
+							callback.apply(this, Array.prototype.slice.apply(arguments));
+						}
+					};
+				}
+				call[0](cmd, cb, op, via, extra);
+			} catch(err) {
+				op("Error while executing command, check console for details");
+				console.log(err);
+				if (!callbackCalled) { //make sure callback is executed at the end of this func, prevent additional executions in async funcs
+					callbackCalled = true;
+					callbackInExternal = false;
+				}
+			}
+			cmdExec = true;
+		}
+	}
+	// console.log("Found "+cmds.length+" matching commands");
+	if (!cmdExec) {
+		var extCmds = bot.commands.getCommands();
+		for (var i in extCmds) {
+			if (!extCmds.hasOwnProperty(i)) {
+				continue;
+			}
+			if (cmd.cmd0 == i) {
+				extCmdExec = true;
+				if (typeof extCmds[i]["func"] == "function") {
+					try {
+						extCmds[i]["func"](cmd, op, via, extra);
+					} catch(err) {
+						op("Error while executing command, check console for details");
+						console.log(err);
+					}
+				}
+			}
+		}
+	}
+	if (extCmdExec || cmdExec) {
+		if (callback && !(cmdExec && callbackInExternal)) {
+			return callback();
+		} else {
+			return true;
+		}
+	}
+	// throw Error("Unhandled command");
+	op("Error: Unhandled command\nEnter 'help' for a list of commands");
+	if (callback) {
+		callback();
+	}
+	return false;
+};
 function runCommand(cmd, callback, output, via, extra) { //via: steam, cmd/console, custom ext stuff (discord, telegram, ...); ext in extra
 	extra = extra || {};
 	var op = output;
@@ -4244,7 +4542,7 @@ bot.cmds.addCommand({ // command: login
 	},
 	func: (function(cmd, callback, op, via, extra) {
 		var acc = bot.aliasToAcc(cmd[1]);
-		if (via !== "cmd") {
+		if (via !== "console") {
 			op("Logging in is only possible using the server console");
 			if (callback) {
 				return callback();
@@ -4924,7 +5222,7 @@ bot.cmds.addCommand({
 		useCallback: true
 	},
 	func: (function(cmd, callback, op, via, extra) {
-		if (via !== "cmd" && !settings["exit_via_chat"]) {
+		if (via !== "console" && !settings["exit_via_chat"]) {
 			op("Exiting via chat is disabled");
 			if (callback) {
 				return callback();
@@ -4933,16 +5231,25 @@ bot.cmds.addCommand({
 			}
 		}
 		//kill script
-		if (bot.preExit && typeof bot.preExit == "function") {
-			bot.preExit();
+		function exitcb() {
+			console.log("Exiting due to command...");
+			process.exit();
 		}
 		try {
 			op("Exit command received");
 		} catch(err) {
 
 		}
-		console.log("Exiting due to command...");
-		process.exit();
+		if (bot.preExit && typeof bot.preExit == "function") {
+			try {
+				var delay = bot.getSetting("exit_killdelay", 2000);
+				bot.preExit(delay, exitcb);
+			} catch(e) {
+				exitcb();
+			}
+		} else {
+			exitcb();
+		}
 		return true;
 	})
 });
@@ -6020,6 +6327,29 @@ bot.cmds.addCommand({
 	})
 });
 
+bot.cmds.addCommand({
+	 name: "ctxmsg",
+	 ctx: bot.cmds.context.ALL,
+	 categories: ["test", "debug"],
+	 flags: {
+		 useCallback: false //don't need this
+	 },
+	 func: (function(cmd, callback, op, via, extra) {
+		 var ctx = cmd[1].toLowerCase();
+		 var msg = cmd[2];
+		 var ctxo = bot.cmds.createContextObjectFromString(ctx);
+		 if (!ctxo) {
+			 op("Couldn't get the context object");
+			 // return (typeof callback == "function" ? callback() : false);
+			 return false;
+		 }
+		 ctxo.sendMessage(msg);
+		 op("Sent message to context " + ctx);
+		 // return (typeof callback == "function" ? callback() : false);
+		 return false;
+	 })
+});
+
 //SECTION: public commands
 bot.cmds.addCommand({
 	name: "publictest",
@@ -6347,18 +6677,60 @@ function checkForPublicCommand(sid, msg, user, name, authed) {
 }
 
 bot.preExitFunctions = [];
-bot.preExit = function preExit() {
+bot.preExit = function preExit(autokill, exitcb) {
+	var ret = [];
 	bot.preExitFunctions.forEach(f => {
 		if (typeof f === "function") {
 			try {
-				f();
+				ret.push(f());
 			} catch(err) {
 				console.error("Error in preExit function:");
 				console.error(err);
 			}
 		}
 	});
+	if (!exitcb) {
+		return;
+	}
+	var prom = [];
+	for (var i = 0; i < ret.length; i++) {
+		var v = ret[i];
+		if (v instanceof Promise) {
+			prom.push(v);
+		}
+	}
+	if (prom.length === 0) {
+		return exitcb();
+	}
+	var maxd = autokill;
+	if (typeof maxd !== "number" || maxd < 0 || maxd > 1000 * 60 * 5) {
+		maxd = 2500;
+	}
+	if (maxd === 0) {
+		return exitcb();
+	}
+	var mcb = bot.util.multiCb(prom.length + 0, exitcb);
+	for (let i = 0; i < prom.length; i++) {
+		var p = prom[i];
+		var cb = mcb[i];
+		p.then(function() {
+			cb();
+		}).catch(function(e) {
+			console.error("Promise from preExit function threw an error: ", e);
+			cb();
+		});
+	}
+	setTimeout(function() {
+		console.log("Autokill timeout reached, killing bot now...");
+		exitcb();
+		// mcb[mcb.length - 1]
+	}, maxd);
+	try {
+		bot.events.emit("bot_killed", [maxd]);
+	} catch(_) {
 
+	}
+	bot.killed = true; //tell extensions etc. that the bot is gonna be killed
 };
 
 bot.settingsUpdated = function settingsUpdated() { //TODO: provide old settings obj, reset tick interval ONLY IF DELAY CHANGED
@@ -6579,11 +6951,35 @@ process.on("uncaughtException", function(err) {
 	} catch(err) {
 
 	}
-	console.log("Exiting...");
-	process.exit(1);
+	//DONE: execute bot.preExit?
+	function exitcb() {
+		console.log("Exiting...");
+		process.exit(1);
+	}
+	if (bot.preExit && typeof bot.preExit === "function") {
+		try {
+			var delay = bot.getSetting("exit_errorkilldelay", 500);
+			bot.preExit(delay, exitcb);
+		} catch(_) {
+			exitcb();
+		}
+	} else {
+		exitcb();
+	}
 });
 
 // undefined(); //intentionally causing an exception
+
+for (var i = 0; i < bot.startupFuncs.length; i++) {
+	var f = bot.startupFuncs[i];
+	if (typeof f == "function") {
+		try {
+			f();
+		} catch(_) {
+			console.error("Error in startup func: ", _)
+		}
+	}
+}
 
 if (settings["autologin"]) {
 	doAccId(0);
