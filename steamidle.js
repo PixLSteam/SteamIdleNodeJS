@@ -48,6 +48,10 @@ bot.onStart = function onStart(f) {
 	bot.startupFuncs.push(f);
 };
 
+bot.onStart(function() {
+	bot.startupTime = new Date();
+});
+
 bot.allowedExceptions = [];
 
 bot.inviSpace = "\uFEFF";
@@ -1880,6 +1884,7 @@ bot.registerError = function registerError(obj = {}) {
 		bot.errorStack.push(o);
 		// console.log(JSON.stringify(o));
 		console.log(o);
+		bot.postErrorReport(o);
 	} catch(err) {
 		try {
 			bot.error("Error during reporting error");
@@ -1887,6 +1892,75 @@ bot.registerError = function registerError(obj = {}) {
 			//TODO: kill process due to fatal error
 		}
 	}
+};
+bot.postErrorReport = function postErrorReport(e) {
+	var data = {};
+	if (e instanceof Error) {
+		data.err = e;
+	} else {
+		data.errObj = e;
+		data.err = e.err;
+		data.time = e.time;
+		data.where = e.where;
+		data.calls = e.calls;
+	}
+	//serialize
+	data.err = data.err.stack;
+
+	var post = {};
+	post.data = data;
+	post.device = bot.getDeviceID();
+	post.env = bot.getEnvData();
+	post.startupTime = bot.startupTime.getTime();
+
+	bot.debug("errorreporting", JSON.stringify(post, null, 2));
+
+	var url = "";
+	//now post
+};
+bot.deviceID = null;
+bot.getDeviceID = function getDeviceID() {
+	if (bot.deviceID) {
+		return bot.deviceID;
+	}
+	var devID;
+	try {
+		devID = require("node-machine-id").machineIdSync();
+	} catch(_) {
+
+	}
+	if (!devID) {
+		try {
+			// devID = require("node-hwid") //can't cuz promise-based
+			// devID = require("getmac").getMac((err, mac) => {}); //can't cuz async
+			devID = require("uuid/v4")(); //last option cuz random and therefore only for this session
+		} catch(_) {
+
+		}
+	}
+	if (!devID) {
+		devID = ""+Math.floor(Math.random() * Number.MAX_SAFE_INTEGER);
+	}
+	bot.deviceID = devID;
+	return devID;
+};
+bot.getEnvData = function getEnvData() {
+	var r = {};
+	r.username = os.userInfo().username;
+	r.arch = os.arch();
+	r.platform = os.platform();
+	//do stuff with os.networkInterfaces()?
+	//os.cpus
+	r.osType = os.type();
+	r.hostname = os.hostname();
+	r.release = os.release();
+	r.uptime = Math.floor(os.uptime());
+	r.ram = Math.floor(os.totalmem() / (1024 * 1024)); //ram in mb, rounded down
+	r.pid = process.pid;
+	r.appUptime = process.uptime();
+	r.nodeVersion = process.versions.node;
+
+	return r;
 };
 bot.resolveCallStack = function resolveCallStack(func, includeCur) {
 	if (typeof func !== "function") {
@@ -3258,6 +3332,9 @@ function tick() {
 		if (!users[i].initialised()) {
 			continue;
 		}
+		if (users[i].shouldBeLoggedIn && !users[i].steamID) {
+			console.log("User "+bot.prepareNameForOutput(i)+" doesn't seem to be logged in although he should be.");
+		}
 		if (users[i].idlingCards()) {
 			checkCards(users[i]); //only check if currently idling cards
 		}
@@ -3290,6 +3367,7 @@ function login(name, pw, authcode, secret, games, online, callback, opts) {
 	user.cardPage = 1;
 
 	user.loggedIn = false;
+	user.shouldBeLoggedIn = false;
 
 	user.on("error", function(err) {
 		if (err == "Error: InvalidPassword") {
@@ -3315,6 +3393,7 @@ function login(name, pw, authcode, secret, games, online, callback, opts) {
 		if (!killPrepared) {
 			console.log(name+" lost connection");
 		}
+		user.shouldBeLoggedIn = false;
 	});
 
 	user.on("steamGuard", function(domain, callback) {
@@ -3345,6 +3424,7 @@ function login(name, pw, authcode, secret, games, online, callback, opts) {
 		user.curIdling = user.curIdling || games || [221410];
 		idle(user, user.curIdling);
 		user.loggedIn = true;
+		user.shouldBeLoggedIn = true;
 	}
 
 	user.on("webSession", function(sessionID, cookies) {
