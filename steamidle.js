@@ -43,6 +43,34 @@ var manifestFile = "manifest.json";
 var bot = {};
 global.bot = bot;
 
+bot.callbackFuncs = [];
+bot.addCallbackFunc = function addCallbackFunc(f) {
+	bot.callbackFuncs.push(f);
+}
+bot.removeCallbackFunc = function removeCallbackFunc(f) {
+	var i = -1;
+	while ((i = bot.callbackFuncs.indexOf(f)) > -1) {
+		bot.callbackFuncs.splice(i, 1);
+	}
+};
+bot.callAllCallbackFuncs = function callAllCallbackFuncs() {
+	var fs = bot.callbackFuncs.concat();
+	for (var i = 0; i < fs.length; i++) {
+		var f = fs[i];
+		try {
+			f();
+		} catch(e) {
+			console.error("Error while forcing callback functions: ", e);
+			var eobj = {};
+			eobj.err = e;
+			eobj.where = "callAllCallbackFuncs";
+			eobj.calls = [];
+			e.calls = bot.resolveCallStack(f, true);
+			bot.registerError(eobj);
+		}
+	}
+}
+
 bot.startupFuncs = [];
 bot.onStart = function onStart(f) {
 	bot.startupFuncs.push(f);
@@ -68,7 +96,7 @@ if (PixLDebug) {
 }
 //now check cmd args
 
-var currentMainFilePath = process.argv[1];
+var currentMainFilePath = process.argv[1] || module.filename;
 var currentMainFile = path.basename(currentMainFilePath);
 
 var updateCI = process.argv.indexOf("--update");
@@ -570,14 +598,31 @@ function cloneRecur(obj) {
 		} else if (ov instanceof Array) {
 			nv = Array.prototype.slice.apply(ov);
 		} else if (typeof nv == "object") {
-			nv = {};
-			// recurTable[ov] = nv;
-			for (var k in ov) {
-				if (!ov.hasOwnProperty(k)) {
-					continue;
+			if (ov instanceof SteamUser) { //fix for user objects getting a call stack overflow (prob circular reference)
+				nv = ov;
+			} else if (!ov.hasOwnProperty && ov.toString && (typeof ov.toString) == "function" && ov.toString != Object.prototype.toString) {
+				// nv = ov.toString();
+				nv = ov;
+			} else {
+				if (ov.hasOwnProperty) {
+					nv = {};
+					// recurTable[ov] = nv;
+					for (var k in ov) {
+						if (!ov.hasOwnProperty(k)) {
+							continue;
+						}
+						var v = ov[k];
+						// console.log(v);
+						nv[k] = f(v);
+					}
+				} else {
+					// if (ov.constructor && ov.constructor.name) {
+					// 	nv = ov.constructor.name;
+					// } else {
+					// 	nv = "Unknown object";
+					// }
+					nv = ov; //just copy
 				}
-				var v = ov[k];
-				nv[k] = f(v);
 			}
 		}
 		// recurTable[ov] = nv;
@@ -590,9 +635,10 @@ function cloneRecur(obj) {
 bot.cloneRecur = cloneRecur;
 // bot.cloneRecurAdded = "yes";
 
-bot.getJSONStringifyReplacer = function getJSONStringifyReplacer(for_humans) {
+bot.getJSONStringifyReplacer = function getJSONStringifyReplacer(for_humans) { //old implementation
 	var got = {};
 	return (k, v) => {
+		console.log(k,v,got[v],typeof v);
 		if (got[v] && typeof v == "object") {
 			return for_humans ? "[Circular Reference]" : "null";
 		}
@@ -600,8 +646,46 @@ bot.getJSONStringifyReplacer = function getJSONStringifyReplacer(for_humans) {
 		return v;
 	};
 };
+bot.getJSONStringifyReplacer = function getJSONStringifyReplacer(for_humans) { //old implementation
+	var gotO = [];
+	var gotN = [];
+	return (k, v) => {
+		//catch circular references
+		if (typeof v == "object") {
+			var i = gotO.indexOf(v);
+			if (i >= 0) {
+				return gotN[i];
+			} else {
+				var _v = for_humans ? "[Circular Reference]" : null;
+				gotO.push(v);
+				gotN.push(_v);
+				// return _v;
+				return v;
+			}
+		}
+		//catch class objects that shouldn't be fully stringified
+		if (SteamUser ? v instanceof SteamUser : false) {
+			return (for_humans) ? "SteamUser " + v.name : {class: "SteamUser", user: v.name};
+		}
+		return v;
+	}
+};
+//from https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Errors/Cyclic_object_value
+//eliminates double occurences of objects
+bot.getJSONStringifyReplacer = () => {
+  const seen = new WeakSet();
+  return (key, value) => {
+    if (typeof value === "object" && value !== null) {
+      if (seen.has(value)) {
+        return;
+      }
+      seen.add(value);
+    }
+    return value;
+  };
+};
 
-bot.getAdvancedOutput = function getAdvancedOutput(old) {
+bot.getAdvancedOutput = function getAdvancedOutput(old, opts = {}) {
 	var r;
 	var con = console;
 	r = function() {
@@ -616,6 +700,24 @@ bot.getAdvancedOutput = function getAdvancedOutput(old) {
 	};
 	Object.defineProperty(r, 'name', { writable: true })
 	r.name = old.name || "SIJS Output";
+	r.buffers = {};
+	r.buffer = function buffer(key, str) {
+		if (!r.buffers[key]) {
+			r.buffers[key] = [];
+		}
+		r.buffers[key].push(str);
+	};
+	r.finish = function finish(key) {
+		if (!r.buffers[key]) {
+			return;
+		}
+		var e = r.buffers[key];
+		delete r.buffers[key];
+		if (this.joinArguments) {
+			e = e.join(this.joinChar || "\n");
+		}
+		this.apply(r, typeof e == "object" ? e : [e]);
+	};
 	r.error = function error() {
 		con.error.apply(con, r.adjustArgsForFunc(arguments, con.error));
 		old.apply(r, r.adjustArgsForFunc(arguments, old));
@@ -634,6 +736,17 @@ bot.getAdvancedOutput = function getAdvancedOutput(old) {
 			return bot._toString(arg);
 		}
 	};
+	if (([null, undefined]).indexOf(opts.joinArguments) < 0) {
+		r.joinArguments = opts.joinArguments;
+	} else {
+		// if (([con.log, con.error]).includes(func)) {
+		// 	r.joinArguments = {};
+		// }
+		r.joinArguments = true;
+	}
+	if (([null, undefined]).indexOf(opts.joinChar) < 0) {
+		r.joinChar = opts.joinChar;
+	}
 	return r;
 };
 
@@ -656,6 +769,36 @@ bot.timeString = function timeString(t) {
 	let d = typeof t == "number" ? new Date(t) : (t ? t : new Date());
 	var dd = x => x < 10 ? "0" + x : "" + x;
 	return d.getFullYear()+"-"+(dd(d.getMonth()+1))+"-"+dd(d.getDate())+" "+dd(d.getHours())+":"+dd(d.getMinutes())+":"+dd(d.getSeconds());
+};
+
+bot.canRelogin = function canRelogin(user) {
+	return !!user.hasLoginKey && (user.steamID || user._steamID);
+};
+bot.relogin = function relogin(user) {
+	if (!bot.canRelogin(user)) {
+		return false;
+	}
+	// user.shouldBeLoggedIn = false; //logging out at this point? (useless, 'disconnected' event gets called or should be)
+	bot.event({type: "steam_relogin", account: user.name, user: user});
+	if (!user.steamID) {
+		user.steamID = user._steamID;
+	}
+	user.relog();
+};
+
+bot.event = function event(ev) {
+	//TODO: event logging (sql db?)
+	console.log("Event " + (ev.type || "unknown") + (ev.account ? ": " + ev.account : ""));
+	var str = cloneRecur(ev);
+	delete str.user;
+	if (str.error) {
+		str.error = str.error.stack ? str.error.stack : str.error.toString();
+	}
+	var stro = str;
+	str = JSON.stringify(str, bot.getJSONStringifyReplacer(), 2);
+	bot.events.emit("bot_event", [ev, stro, str]);
+	str = bot.formatDate(new Date()) + os.EOL + str;
+	fs.writeFileSync("bot_events.log", str + os.EOL, {flag: "a"});
 };
 
 bot.getLogFolder = function getLogFolder() {
@@ -724,6 +867,9 @@ bot.SteamBotExtInterface = function SteamBotExtInterface(name, ext) {
 		type: "file",
 		to: function() {return bot.getLogFolder()+"/ext/"+iface.getName()+".log";} //made dynamic so name changes while running will be reflected in the filenames, still not recommended tho
 	};
+	if (!fs.existsSync(bot.getLogFolder()+"/ext/")) {
+		fs.mkdirSync(bot.getLogFolder()+"/ext/");
+	}
 	let logger = new bot.Logger(loggerTarget);
 	Object.defineProperty(this, "logger", {value: logger});
 }
@@ -1683,29 +1829,33 @@ bot.ext.isLoadedName = function isLoadedName(ext) {
 bot.loadExtensions = function loadExtensions() {
 
 };
+bot.ext.resolve = function resolve(ext) {
+	var files = [
+		"%(ext)/main.js",
+		"%(ext)/init.js",
+		"%(ext)/start.js",
+		"%(ext)/module.js",
+		"%(ext).js",
+		"%(ext)",
+		""
+	];
+	var file;
+	for (var i = 0; i < files.length; i++) {
+		var f = files[i].replace("%(ext)", ext);
+		console.log("file: "+f, fs.existsSync(f));
+		if (f.length > 0 && fs.existsSync(f)) {
+			file = f;
+			break;
+		}
+	}
+	return file;
+};
 bot.loadExtension = function loadExtension(ext, op) {
 	if (bot.ext.isLoaded(ext)) {
 		return op && typeof op == "function" && op("Extension already loaded");
 	}
 	try {
-		var files = [
-			"%(ext)/main.js",
-			"%(ext)/init.js",
-			"%(ext)/start.js",
-			"%(ext)/module.js",
-			"%(ext).js",
-			"%(ext)",
-			""
-		];
-		var file;
-		for (var i = 0; i < files.length; i++) {
-			var f = files[i].replace("%(ext)", ext);
-			console.log("file: "+f, fs.existsSync(f));
-			if (f.length > 0 && fs.existsSync(f)) {
-				file = f;
-				break;
-			}
-		}
+		var file = bot.ext.resolve(ext);
 		if (file) {
 			var fstr = file;
 			if (fstr.substr(0, 1) !== "/" && fstr.substr(0, 1) !== "~") {
@@ -1763,18 +1913,69 @@ bot.loadExtension = function loadExtension(ext, op) {
 		bot.registerError(e);
 	}
 };
+bot.ext.stopExtension = function stopExtension(ext, op) {
+	if (!bot.ext.isLoaded(ext)) {
+		return op && typeof op === "function" && op("Extension not loaded") && false;
+	}
+	var d = bot.ext.list[ext];
+	if (!d) {
+		return op && typeof op === "function" && op("Extension data not found") && false;
+	}
+	delete bot.ext.list[ext];
+	var _d = d.ret;
+	if (_d.name) {
+		delete bot.ext.nameList[_d.name];
+	}
+	var stopFunc = _d.stop || (x => x);
+	try {
+		stopFunc(op);
+	} catch(e) {
+		op("Error while stopping extension: "+e);
+	}
+	return true;
+};
+bot.ext.freeExtension = function freeExtension(ext, op) {
+	var file = bot.ext.resolve(ext);
+	if (file) {
+		bot.deleteModuleCache(file);
+	}
+};
+
+bot.deleteModuleCache = function deleteModuleCache(_module) {
+	delete require.cache[require.resolve(_module)];
+};
 
 bot.debugModes = [];
 bot.getDebugModes = function getDebugModes() {
 	return bot.debugModes.concat();
 };
+bot.doDebugMode = function doDebugMode(mode) {
+	return bot.getDebugModes().includes("*") || bot.getDebugModes().includes(mode);
+}
 bot.debug = function debug(mode) {
 	// op = op || getDefaultOutput();
 	var op = getDefaultOutput();
-	if (bot.getDebugModes().includes("*") || bot.getDebugModes().includes(mode)) {
+	if (bot.doDebugMode(mode)) {
 		// op(msg);
 		var c = 0;
 		op.apply(null, ["DEBUG|"+mode].concat(Array.prototype.slice.call(arguments).filter(function(x) {return c++ > 0;})));
+	}
+};
+bot.debug2 = function debug2(mode, ...toPrint) {
+	var op = getDefaultOutput();
+	if (toPrint.length > 0) {
+		if (!bot.doDebugMode(mode)) {
+			return false;
+		}
+		op.apply(null, ["DEBUG|"+mode].concat(toPrint));
+	} else { //create "instance" to send debug msgs to, also allow setting possible opts
+		var f = function debug_inst(...toP) {
+			return bot.debug2.apply(null, [mode].concat(toP));
+		};
+		f.opt = function opt(opts) {
+			//set opts?
+		};
+		return f;
 	}
 };
 
@@ -1885,6 +2086,9 @@ bot.registerError = function registerError(obj = {}) {
 		// console.log(JSON.stringify(o));
 		console.log(o);
 		bot.postErrorReport(o);
+		var f = "./registerederrors.log";
+		var estr = bot.formatDate(new Date(o.time))+" | "+(o.err.stack ? o.err.stack : o.err.toString());
+		fs.writeSync(f, estr, {flag: "a"});
 	} catch(err) {
 		try {
 			bot.error("Error during reporting error");
@@ -3333,7 +3537,13 @@ function tick() {
 			continue;
 		}
 		if (users[i].shouldBeLoggedIn && !users[i].steamID) {
-			console.log("User "+bot.prepareNameForOutput(i)+" doesn't seem to be logged in although he should be.");
+			if (bot.canRelogin(users[i])) {
+				console.log("User "+bot.prepareNameForOutput(i)+" doesn't seem to be logged in although he should be. Attempting relogin...");
+				users[i].shouldBeLoggedIn = false;
+				bot.relogin(users[i]);
+			} else {
+				console.log("User "+bot.prepareNameForOutput(i)+" doesn't seem to be logged in although he should be. Can't relogin either.");
+			}
 		}
 		if (users[i].idlingCards()) {
 			checkCards(users[i]); //only check if currently idling cards
@@ -3386,6 +3596,8 @@ function login(name, pw, authcode, secret, games, online, callback, opts) {
 		} else {
 			console.log("An error occured...");
 			console.log(err);
+			bot.event({account: user.name, user: user, type: "steam_error", error: err});
+			bot.relogin(user);
 		}
 	});
 
@@ -3394,6 +3606,7 @@ function login(name, pw, authcode, secret, games, online, callback, opts) {
 			console.log(name+" lost connection");
 		}
 		user.shouldBeLoggedIn = false;
+		bot.event({type: "steam_disconnect", user: user, account: user.name});
 	});
 
 	user.on("steamGuard", function(domain, callback) {
@@ -3413,6 +3626,10 @@ function login(name, pw, authcode, secret, games, online, callback, opts) {
 		}
 	}
 
+	if (bot.getSetting("alwaysRememberPassword")) {
+		logOnObj.rememberPassword = true;
+	}
+
 	user.logOn(logOnObj);
 
 	var loggedOn = function() {
@@ -3425,6 +3642,9 @@ function login(name, pw, authcode, secret, games, online, callback, opts) {
 		idle(user, user.curIdling);
 		user.loggedIn = true;
 		user.shouldBeLoggedIn = true;
+		if (user.steamID) { //to save steamID in case we somehow get logged out for no apparent reason, .relog() doesn't work without
+			user._steamID = user.steamID;
+		}
 	}
 
 	user.on("webSession", function(sessionID, cookies) {
@@ -3439,6 +3659,7 @@ function login(name, pw, authcode, secret, games, online, callback, opts) {
 			user.isOnline = toBool(online);
 			loggedOn();
 			firstLoginTrigger = false;
+			bot.event({type: "steam_login", user: user, account: name});
 			if (callback) {
 				callback();
 			}
@@ -3454,6 +3675,7 @@ function login(name, pw, authcode, secret, games, online, callback, opts) {
 	user.on("loggedOn", function() {
 		if (!firstLoginTrigger) {
 			console.log("Reconnected with "+name);
+			bot.event({type: "steam_reconnect", account: name, user: user});
 			loggedOn();
 		}
 	});
@@ -3473,6 +3695,7 @@ function login(name, pw, authcode, secret, games, online, callback, opts) {
 	});
 
 	user.on("loginKey", function(key) {
+		user.hasLoginKey = true;
 		bot.setLoginKey(name, key);
 	});
 
@@ -3804,7 +4027,8 @@ settings = {
 	namechange_instant: true,
 	mckay_anonstats_optout: false, //automatically opt out of https://github.com/DoctorMcKay/node-stats-reporter
 	w2p_idledelay: 60 * 1000, //idle delay for !w2p in ms
-	logFolder: "./log"
+	logFolder: "./log",
+	alwaysRememberPassword: true
 };
 bot.settings = settings;
 function loadSettings(display_output) { //TODO: adjust this + def settings to new system
@@ -4005,6 +4229,11 @@ function doAccId(index) {
 		pwi = null;
 	}
 	var d = accs[i];
+	if (d.dummy) {
+		// return callback();
+		console.log("Skipping account " + i + " because it's a dummy");
+		return doAccId(index + 1); //skip acc
+	}
 	var secret = accs[i]["secret"];
 	var games = gamesVarToArray(accs[i]["games"]);
 	var online = accs[i]["online"];
@@ -4012,9 +4241,9 @@ function doAccId(index) {
 		if (err) {
 			onErr(err);
 			if (err == "Error: canceled") {
-				if (callback) {
-					callback();
-				}
+				// if (callback) { //wtf is this???
+				// 	callback();
+				// }
 			}
 			return 1;
 		}
@@ -4298,7 +4527,10 @@ bot.executeCommand = function executeCommand(data) {
 		ctx = data.contextObject.context;
 	}
 	var via = ctx || "emulated";
-	cmd.cmd0 = cmd[0].substr(1);
+	cmd.cmd0 = cmd[0] ? cmd[0].substr(1) : false;
+	if (!cmd[0]) {
+		return;
+	}
 	console.log("parsed command: ["+cmd.join(",")+"]")
 	//TODO: use bot.getAdvancedOutput(op) ???
 	//TODO: code below was pasted from runCommand => fix + allow public cmds, also check authed
@@ -4341,11 +4573,13 @@ bot.executeCommand = function executeCommand(data) {
 						if (callbackCalled) {
 							return;
 						}
+						bot.removeCallbackFunc(cb);
 						callbackCalled = true;
 						if (callback) {
 							callback.apply(this, Array.prototype.slice.apply(arguments));
 						}
 					};
+					bot.addCallbackFunc(cb);
 				}
 				call[0](cmd, cb, op, via, extra);
 			} catch(err) {
@@ -4654,6 +4888,9 @@ bot.cmds.addCommand({ // command: login
 				throw SIJSError("Account is already logged in");
 			}
 			var d = accs[acc];
+			if (d.dummy) {
+				throw SIJSError("Account is a dummy");
+			}
 			var name = acc || d["name"];
 			var pwi = d["pw_index"];
 			var authcode = null;
@@ -5517,7 +5754,12 @@ bot.cmds.addCommand({
 						} else {
 							return;
 						} //*/
-						return;
+						// return;
+						if (callback) {
+							return callback();
+						} else {
+							return;
+						}
 					}
 					var cb = function(){f(index + 1);};
 					var user = uar[index];
@@ -5530,7 +5772,8 @@ bot.cmds.addCommand({
 							return;
 						}
 						op("Successfully added "+name+" ["+frid+"] with account "+bot.prepareNameForOutput(user.name));
-						cb();
+						setTimeout(cb, bot.getSetting("addfriend_delay", 1500))
+						// cb();
 					});
 				};
 				f(0);
@@ -5932,6 +6175,32 @@ bot.cmds.addCommand({
 				throw Error("No extension provided");
 			}
 			bot.loadExtension(ext, op);
+		} catch(err) {
+			op("An error occured: "+err);
+		}
+		if (callback) {
+			return callback();
+		} else {
+			return;
+		}
+	})
+});
+bot.cmds.addCommand({
+	name: "extstop",
+	ctx: bot.cmds.context.ALL,
+	categories: ["app", "extensions"],
+	behavior: "unstable",
+	flags: {
+		useCallback: true
+	},
+	func: (function(cmd, callback, op, via, extra) {
+		var ext = cmd[1];
+		try {
+			if (!ext) {
+				throw Error("No extension provided");
+			}
+			bot.ext.stopExtension(ext, op);
+			bot.ext.freeExtension(ext, op);
 		} catch(err) {
 			op("An error occured: "+err);
 		}
@@ -6430,6 +6699,17 @@ bot.cmds.addCommand({
 		 return false;
 	 })
 });
+bot.cmds.addCommand({
+	name: "fixcallback",
+	ctx: bot.cmds.context.ALL,
+	categories: ["debug", "fix"],
+	flags: {
+		useCallback: false
+	},
+	func: (function() {
+		bot.callAllCallbackFuncs();
+	})
+});
 
 //SECTION: public commands
 bot.cmds.addCommand({
@@ -6763,6 +7043,51 @@ function checkForPublicCommand(sid, msg, user, name, authed) {
 	}
 	if (extCmdExec) {
 		return true;
+	} else {
+		if (cmds.length > 1) {
+			op("Found "+cmds.length+" commands with this name. Please check for interfering extensions.");
+			return callback();
+		}
+		var cmdExec = false;
+		if (cmds.length > 0) {
+			var call = [];
+			for (var i = 0; i < cmds.length; i++) {
+				if (cmds[i].func && typeof cmds[i].func === "function") {
+					if (cmds[i].flags.useCallback) {
+						callbackInExternal = true;
+					}
+					call.push(cmds[i].func);
+				}
+			}
+			if (call.length > 1) { //doesn't make any sense
+				op("Multiple commands found, please check for interfering extensions. Not executing your command.");
+			}
+			if (call.length == 1) {
+				var callbackCalled = false;
+				try {
+					var cb = () => null;
+					if (callbackInExternal) {
+						cb = function() {
+							if (callbackCalled) {
+								return;
+							}
+							callbackCalled = true;
+							if (callback) {
+								callback.apply(this, Array.prototype.slice.apply(arguments));
+							}
+						};
+					}
+					call[0](cmd, cb, op, via, extra);
+				} catch(err) {
+					op("Error while executing command, check console for details");
+					console.log(err);
+					if (!callbackCalled) { //make sure callback is executed at the end of this func, prevent additional executions in async funcs
+						callbackCalled = true;
+						callbackInExternal = false;
+					}
+				}
+			}
+		}
 	}
 }
 
@@ -6889,6 +7214,9 @@ const toLogFile = function toLogFile() {
 			var d = new Date();
 			var ds = (d.getFullYear() + "-" + dd(d.getMonth() + 1) + "-" + dd(d.getDate())+" "+dd(d.getHours())+":"+dd(d.getMinutes())+":"+dd(d.getSeconds()));
 			var str = Array.prototype.slice.apply(arguments).map(x => tS(x)).join(" ");
+			if (!fs.existsSync(bot.getLogFolder())) {
+				fs.mkdirSync(bot.getLogFolder());
+			}
 			fs.writeFileSync(bot.getLogFolder()+"/bot.log", (true ? ds + " | " : "") + str + "\n", {flag: "a"});
 		}
 	} catch(err) {
