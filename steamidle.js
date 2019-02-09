@@ -919,6 +919,9 @@ bot.SteamBotExtInterface = function SteamBotExtInterface(name, ext) {
 		to: function() {return bot.getLogFolder()+"/ext/"+iface.getName()+".log";} //made dynamic so name changes while running will be reflected in the filenames, still not recommended tho
 	};
 	if (!fs.existsSync(bot.getLogFolder()+"/ext/")) {
+		if (!fs.existsSync(bot.getLogFolder())) {
+			fs.mkdirSync(bot.getLogFolder());
+		}
 		fs.mkdirSync(bot.getLogFolder()+"/ext/");
 	}
 	let logger = new bot.Logger(loggerTarget);
