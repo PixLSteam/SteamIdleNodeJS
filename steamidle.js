@@ -43,6 +43,57 @@ var manifestFile = "manifest.json";
 var bot = {};
 global.bot = bot;
 
+bot.loadPackageJson = function loadPackageJson(mod) {
+	try {
+		return require(mod+"/package.json");
+	} catch(err) {
+		return err;
+	}
+}
+
+bot.loadedModules = {};
+bot.loadedModules["steam-user"] = {
+	value: SteamUser,
+	data: bot.loadPackageJson("steam-user")
+};
+
+bot.addModuleToList = function addModuleToList(mod, value = null) {
+	if (!value) {
+		try {
+			value = require(mod);
+		} catch(err) {
+
+		}
+	}
+	try {
+		var d = require(mod+"/package.json");
+		bot.loadedModules[mod] = {
+			value: value,
+			data: d
+		};
+		if (value) {
+			return 1;
+		} else {
+			return 0.5;
+		}
+	} catch(err) {
+		return err;
+	}
+};
+
+bot.getModuleVersion = function getModuleVersion(mod) {
+	if (bot.loadedModules[mod]) {
+		var d = bot.loadedModules[mod].data;
+		if (!d) {
+			return;
+		}
+		if (d && d.version) {
+			return d.version;
+		}
+	}
+};
+bot.steamUserVersionFull = bot.getModuleVersion("steam-user");
+
 bot.callbackFuncs = [];
 bot.addCallbackFunc = function addCallbackFunc(f) {
 	bot.callbackFuncs.push(f);
@@ -1445,6 +1496,321 @@ bot.cmds.createContextObjectFromString = function createContextObjectFromString(
 	return cojb.fromDataString(s);
 };
 
+bot.cmds.argumentTypes = {};
+bot.cmds.argumentType = function argumentType(opts) { //the base argumentType to derive other types from
+	//this.opts = opts || {};
+	this.opts = {};
+	var cls = this.constructor;
+	while (cls) {
+		var defOpts = cls.defaultOpts;
+		cls = cls.__proto__;
+		if (defOpts) {
+			Object.assign(this.opts, defOpts);
+		}
+	}
+	Object.assign(this.opts, opts || {});
+};
+bot.cmds.argumentType.prototype.verify = function verify(str) {
+	if (this.opts && typeof this.opts.verify == "function") {
+		return this.opts.verify.call(this, str);
+	}
+	return true;
+};
+bot.cmds.argumentType.prototype.parse = function parse(str) { //convert to js type
+	if (this.opts && typeof this.opts.parse == "function") {
+		return this.opts.parse.call(this, str);
+	}
+	return str;
+};
+bot.cmds.argumentType.defaultOpts = {
+	customParsing: false, //whether to call type.parse() to parse the argument instead of using regular space/quote parsing
+	trimCustom: false //whether to trim spaces at the start and end of the custom parsed argument
+};
+
+bot.cmds.argumentTypes.string = class argumentTypeString extends bot.cmds.argumentType {
+	//let everything pass
+};
+bot.cmds.argumentTypes.text = class argumentTypeText extends bot.cmds.argumentTypes.string {
+	parse(str, start) {
+		return str.length - 1; //rest of the string
+	}
+};
+bot.cmds.argumentTypes.text.defaultOpts = {
+	customParsing: true,
+	trimCustom: true
+};
+bot.cmds.argumentTypes.number = class argumentTypeNumber extends bot.cmds.argumentType {
+	verify(x) {
+		return !!x.match(/^(0x[0-9a-fA-F]+|0b[01]+|[0-9]+(\.[0-9]+)?([eE][+-]?[0-9]+)?|([0-9]+)?\.[0-9]+([eE][+-]?[0-9]+)?)$/) && Number(x) >= this.opts.min && Number(x) <= this.opts.max;
+	}
+	parse(x) {
+		return Number(x);
+	}
+};
+bot.cmds.argumentTypes.number.defaultOpts = {
+	min: -Infinity,
+	max: Infinity
+};
+bot.cmds.argumentTypes.integer = class argumentTypeInteger extends bot.cmds.argumentTypes.number {
+	verify(x) {
+		return super.verify(x) && Number.isInteger(Number(x));
+	}
+};
+bot.cmds.argumentTypes.time = class argumentTypeTime extends bot.cmds.argumentType {
+	verify(x) {
+		return !!this.parse(x);
+	}
+	parse(x, onErr) {
+		var errs = [];
+		var regEx = bot.cmds.argumentTypes.time.parsing;
+		for (var i = 0; i < regEx.length; i++) {
+			var re = regEx[i].regex;
+			var m;
+			if (m = x.match(re)) {
+				var r = regEx[i].func(x, m, this);
+				if (r) {
+					// return r;
+					if (r instanceof Date && !isNaN(r.getTime())) {
+						return r;
+					}
+					if (r instanceof Error) {
+						errs.push(r);
+					}
+				}
+			}
+		}
+		if (onErr && errs.length > 0) {
+			onErr.apply(null, errs);
+		}
+		return false;
+	}
+};
+bot.cmds.argumentTypes.time.parsing = [
+	{
+		regex: /^(?:(?:(?:(\d+)\-)?(\d+)\-)?(\d+)\s+)?([0-1]?[0-9]|2[0-3]):([0-5]?[0-9])(?:\:(\d+))?$/,
+		func: (x, m, argType) => {
+			/*
+				m[1] => year (full year or last 2 digits, below 70 => 20xx, otherwise 19xx)
+				m[2] => month
+				m[3] => day of month
+				m[4] => hours
+				m[5] => minutes
+				m[6] => seconds
+			*/
+			var futureOnly = argType.opts ? argType.opts.futureOnly : true;
+
+			var curDate = new Date();
+
+			var seconds = m[6] ? parseInt(m[6]) : null;
+			var minutes = m[5] ? parseInt(m[5]) : null;
+			var hours = m[4] ? parseInt(m[4]) : null;
+			var day = m[3] ? parseInt(m[3]) : null;
+			var month = m[2] ? parseInt(m[2]) : null;
+			var year = m[1] ? parseInt(m[1]) : null;
+			if (year !== null) {
+				if (year < 70) {
+					year = 2000 + year;
+				} else if (year < 100) {
+					year = 1900 + year;
+				} else if (year < 1970) {
+					// return null;
+					return new Error("Invalid year supplied");
+				}
+			}
+			if (month !== null) {
+				if (month < 13 && month > 0) {
+					//noice
+				} else {
+					// return null;
+					return new Error("Invalid month supplied");
+				}
+			}
+			if (day !== null && (day < 1 || day > 31)) {
+				// return null;
+				return new Error("Invalid day supplied");
+			}
+			if (hours === null) {
+				//return null; //not supposed to be null
+				return new Error("No hours supplied");
+			}
+			if (minutes === null) {
+				// return null;
+				return new Error("No minutes supplied");
+			}
+			if (year === null && month === null && day === null) {
+				var str = hours + ":" + minutes + ":" + (seconds === null ? 0 : seconds);
+				var today = new Date(curDate.toDateString());
+				var tomorrow = today.addDays(1);
+				var todtime = new Date(today.toDateString() + " " + str);
+				var tomtime = new Date(tomorrow.toDateString() + " " + str);
+				if (futureOnly) {
+					if (todtime.getTime() < curDate.getTime()) {
+						// altime = tomtime.getTime();
+						year = tomtime.getFullYear();
+						month = tomtime.getMonth() + 1;
+						day = tomtime.getDate();
+
+					} else {
+						// altime = todtime.getTime();
+						year = todtime.getFullYear();
+						month = todtime.getMonth() + 1;
+						day = todtime.getDate();
+					}
+				} else {
+					year = todtime.getFullYear();
+					month = todtime.getMonth() + 1;
+					day = todtime.getDate();
+				}
+			}
+			if (year === null && month === null) {
+				var str = hours + ":" + minutes + ":" + (seconds === null ? 0 : seconds);
+				var today = new Date(curDate.toDateString());
+				var nextMon = today.addMonths(1);
+				var todtime = new Date(today.toDateString() + " " + str);
+				todtime.setDate(day);
+				var tomtime = new Date(nextMon.toDateString() + " " + str);
+				tomtime.setDate(day);
+				if (futureOnly) {
+					if (todtime.getTime() < curDate.getTime()) {
+						// altime = tomtime.getTime();
+						year = tomtime.getFullYear();
+						month = tomtime.getMonth() + 1;
+						//day = tomtime.getDate();
+
+					} else {
+						// altime = todtime.getTime();
+						year = todtime.getFullYear();
+						month = todtime.getMonth() + 1;
+						//day = todtime.getDate();
+					}
+				} else {
+					year = todtime.getFullYear();
+					month = todtime.getMonth() + 1;
+					//day = todtime.getDate();
+				}
+			}
+			if (year === null) {
+				var str = hours + ":" + minutes + ":" + (seconds === null ? 0 : seconds);
+				var today = new Date(curDate.toDateString());
+				var nextMon = today.addMonths(1);
+				var todtime = new Date(today.toDateString() + " " + str);
+				todtime.setMonth(month - 1);
+				todtime.setDate(day);
+				var tomtime = new Date(nextMon.toDateString() + " " + str);
+				tomtime.setMonth(month - 1);
+				tomtime.setDate(day);
+				if (futureOnly) {
+					if (todtime.getTime() < curDate.getTime()) {
+						// altime = tomtime.getTime();
+						year = tomtime.getFullYear();
+						// month = tomtime.getMonth() + 1;
+						//day = tomtime.getDate();
+
+					} else {
+						// altime = todtime.getTime();
+						year = todtime.getFullYear();
+						// month = todtime.getMonth() + 1;
+						//day = todtime.getDate();
+					}
+				} else {
+					year = todtime.getFullYear();
+					// month = todtime.getMonth() + 1;
+					//day = todtime.getDate();
+				}
+			}
+			if (seconds === null) {
+				seconds = 0;
+			}
+			var d = new Date(year, month - 1, day, hours, minutes, seconds);
+			return d; //check date before returning? should be fine tho
+		}
+	},
+	{ //offset from now
+		regex: /^(?!$)(?:([0-9]+)w)?(?:([0-9]+)d)?(?:([0-9]+)h)?(?:([0-9]+)m)?(?:([0-9]+)s)?$/,
+		func: (x, m) => {
+			return new Date(Date.now()
+			+ m[1] ? parseInt(m[1]) * 1000 * 60 * 60 * 24 * 7 : 0
+			+ m[2] ? parseInt(m[2]) * 1000 * 60 * 60 * 24 : 0
+			+ m[3] ? parseInt(m[3]) * 1000 * 60 * 60 : 0
+			+ m[4] ? parseInt(m[4]) * 1000 * 60 : 0
+			+ m[5] ? parseInt(m[5]) * 1000 : 0
+			);
+		}
+	}
+];
+bot.cmds.argumentTypes.acc = class argumentTypeAcc extends bot.cmds.argumentType {
+	verify(x) {
+		return !!this.parse(x);
+	}
+	parse(x) {
+		return bot.users[bot.aliasToAcc(x)];
+	}
+};
+bot.cmds.argumentTypes.accs = class argumentTypeAccs extends bot.cmds.argumentType {
+	verify(x) { //could go for regex but there might be edge cases we don't want to miss
+		var p = this.parse(x);
+		if (!p || p.length < this.opts.minCount || p.length > this.opts.maxCount) {
+			return false;
+		}
+		return true;
+	}
+	parse(x) {
+		var accs = bot.getAccs(x);
+		var r;
+		for (var i = 0; i < accs.length; i++) {
+			if (bot.users[accs[i]]) {
+				r.push(bot.users[accs[i]]);
+			}
+		}
+		return r;
+	}
+};
+bot.cmds.argumentTypes.accs.defaultOpts = { //
+	minCount: 1,
+	maxCount: Infinity
+};
+bot.cmds.argumentTypes.steamID = class argumentTypeSteamID extends bot.cmds.argumentType {
+	verify(x) {
+		return !!this.parse(x);
+	}
+	parse(x) {
+		if (x.match(/^7656\d+$/)) {
+			return new SteamID(x);
+		}
+		if (this.opts.steamIDFromAccName) {
+			var n = bot.aliasToAcc(x);
+			if (bot.users[n] && bot.users[n].steamID) {
+				return bot.users[n].steamID;
+			}
+		}
+		var d = bot.steamIDFromDict(x);
+		if (d && d !== x) {
+			if (d instanceof SteamID) {
+				return d;
+			} else {
+				return new SteamID(d);
+			}
+		}
+		return false;
+	}
+}
+bot.cmds.argumentTypes.steamID.defaultOpts = {
+	steamIDFromAccName: false
+};
+
+//TODO: rework whole system below and turn every argument type into a separate class to allow custom options like min/max values
+/*
+bot.cmds.argumentTypes.string = new bot.cmds.argumentType("string", {});
+bot.cmds.argumentTypes.number = new bot.cmds.argumentType("number", {
+	verify: x => x.match(/^(0x[0-9a-fA-F]+|0b[01]+|[0-9]+(\.[0-9]+)?([eE][+-]?[0-9]+)?|([0-9]+)?\.[0-9]+([eE][+-]?[0-9]+)?)$/), //support for hexadecimal, binary and scientific notation. not supporting octal for user convenience (might confuse people)
+	parse: x => Number(x)
+});
+bot.cmds.argumentTypes.integer = new bot.cmds.argumentType("integer", {
+	verify: x => x.match(/^(0x[0-9a-fA-F]+|0b[01]+|[0-9]+(\.[0-9]+)?([eE][+-]?[0-9]+)?|([0-9]+)?\.[0-9]+([eE][+-]?[0-9]+)?)$/) && Number.isInteger(Number(x)),
+	parse: x => Number(x)
+});
+//*/
+
 bot.commands = {};
 bot.commands.list = {};
 bot.commands.addCommand = function addCommand(cmd, func) {
@@ -1848,6 +2214,9 @@ bot.ext.resolve = function resolve(ext) {
 			break;
 		}
 	}
+	if (file.substr(0, 1) !== "/" && file.substr(0, 1) !== "~") { //fix so external functions don't have to check themselves
+		file = "./"+file;
+	}
 	return file;
 };
 bot.loadExtension = function loadExtension(ext, op) {
@@ -2016,9 +2385,9 @@ bot.steam = {};
 bot.steam.personas = {};
 bot.steam._getPersona = function _getPersona(sid, cb, user) {
 	var sid64 = sid.getSteamID64();
-	console.log(user ? user.name : "no user");
-	console.log(user ? user.users : "no user");
-	console.log(sid64);
+	// console.log(user ? user.name : "no user");
+	// console.log(user ? user.users : "no user");
+	// console.log(sid64);
 	if (user && user.users && user.users[sid64] && typeof(user.users[sid64].player_name) == "string") {
 		// console.log(user.users[sid64]);
 		var n = user.users[sid64].player_name;
@@ -2279,7 +2648,7 @@ bot.steamIDFromDict = function(id) { //TODO: implement dict
 	return id;
 };
 
-bot.dictOrAliasToAcc = function dictOrAliasToAcc(acc) { //TODO: add sid dict
+bot.dictOrAliasToAcc = function dictOrAliasToAcc(acc) { //TODO: add sid dict, remove this function?
 	return bot.aliasToAcc(acc);
 };
 
@@ -2344,6 +2713,26 @@ function combineObjects(obj1, obj2) {
 Date.prototype.addDays = function(days) {
 	var dat = new Date(this.valueOf());
 	dat.setDate(dat.getDate() + days);
+	return dat;
+}
+
+Date.prototype.addMonths = function(months, lastIfOverflow = true) {
+	var dat = new Date(this.valueOf());
+	var expMon = dat.getMonth() + months;
+	dat.setMonth(expMon);
+	if (lastIfOverflow && dat.getMonth() != expMon % 12) {
+		dat.setDate(0);
+	}
+	return dat;
+}
+
+Date.prototype.addYears = function(years, lastIfOverflow = true) {
+	var dat = new Date(this.valueOf());
+	var expMon = dat.getMonth();
+	dat.setFullYear(dat.getFullYear() + years);
+	if (lastIfOverflow && dat.getMonth() != expMon) { //from leap year 29 feb to non-leap year (28 feb if lastIfOverflow, otherwise 1 mar)
+		dat.setDate(0);
+	}
 	return dat;
 }
 
@@ -2427,6 +2816,9 @@ function getAccs(str, via, extra) {
 	if (!str || str === "all") {
 		str = "*";
 	}
+	if (str.match(/^([a-zA-Z0-9_-]+)(,[a-zA-Z0-9_-]+)+$/)) {
+		str = "[" + str +"]";
+	}
 	var curAccs = [];
 	var i = 0;
 	var la = 0;
@@ -2489,6 +2881,29 @@ function getAccs(str, via, extra) {
 	return curAccs;
 }
 bot.getAccs = getAccs;
+function getUsers() {
+	var accs = bot.getAccs.apply(bot, arguments);
+	var users = {};
+	for (var i = 0; i < accs.length; i++) {
+		users[accs[i]] = bot.users[accs[i]];
+	}
+	return users;
+}
+bot.getUsers = getUsers;
+function getUsersArray() {
+	var accs = bot.getAccs.apply(bot, arguments);
+	bot.debug("getusers", "args: " + JSON.stringify(arguments, null, 2));
+	bot.debug("getusers", "accs: " + JSON.stringify(accs, null, 2));
+	// var users = {};
+	var users = [];
+	for (var i = 0; i < accs.length; i++) {
+		// users[accs[i]] = bot.users[i];
+		users.push(bot.users[accs[i]]);
+	}
+	bot.debug("getusers", "users: " + JSON.stringify(users, bot.getJSONStringifyReplacer(), 2));
+	return users;
+}
+bot.getUsersArray = getUsersArray;
 
 function getSteamID64FromDict(al, opts) {
 	if (!bot.sidDict) {
@@ -3224,7 +3639,8 @@ function cardCheck(user, callback, keepLastCheck) {
 					return pkg.appids && pkg.appids.indexOf(appid) != -1;
 				}).forEach(function(pkg) {
 					var timeCreatedAgo = Math.floor(Date.now() / 1000) - pkg.time_created;
-					if(timeCreatedAgo < (60 * 60 * 24 * 14) && [Steam.EPaymentMethod.ActivationCode, Steam.EPaymentMethod.GuestPass, Steam.EPaymentMethod.Complimentary].indexOf(pkg.payment_method) == -1) {
+					// if(timeCreatedAgo < (60 * 60 * 24 * 14) && [Steam.EPaymentMethod.ActivationCode, Steam.EPaymentMethod.GuestPass, Steam.EPaymentMethod.Complimentary].indexOf(pkg.payment_method) == -1) {
+					if(timeCreatedAgo < (60 * 60 * 24 * 14) && [SteamUser.EPaymentMethod.ActivationCode, SteamUser.EPaymentMethod.GuestPass, SteamUser.EPaymentMethod.Complimentary].indexOf(pkg.payment_method) == -1) {
 						newlyPurchased = true;
 					}
 					lastPkg = pkg;
@@ -3363,7 +3779,8 @@ function checkCardsCmd(user, op) {
 				return pkg.appids && pkg.appids.indexOf(appid) != -1;
 			}).forEach(function(pkg) {
 				var timeCreatedAgo = Math.floor(Date.now() / 1000) - pkg.time_created;
-				if(timeCreatedAgo < (60 * 60 * 24 * 14) && [Steam.EPaymentMethod.ActivationCode, Steam.EPaymentMethod.GuestPass, Steam.EPaymentMethod.Complimentary].indexOf(pkg.payment_method) == -1) {
+				// if(timeCreatedAgo < (60 * 60 * 24 * 14) && [Steam.EPaymentMethod.ActivationCode, Steam.EPaymentMethod.GuestPass, Steam.EPaymentMethod.Complimentary].indexOf(pkg.payment_method) == -1) {
+				if(timeCreatedAgo < (60 * 60 * 24 * 14) && [SteamUser.EPaymentMethod.ActivationCode, SteamUser.EPaymentMethod.GuestPass, SteamUser.EPaymentMethod.Complimentary].indexOf(pkg.payment_method) == -1) {
 					newlyPurchased = true;
 				}
 				lastPkg = pkg;
@@ -3527,7 +3944,8 @@ function updateOnlineStatus(name) {
 	} else {
 		user = name;
 	}
-	user.setPersona(user.isOnline && SteamUser.Steam.EPersonaState.Online || SteamUser.Steam.EPersonaState.Offline);
+	// user.setPersona(user.isOnline && SteamUser.Steam.EPersonaState.Online || SteamUser.Steam.EPersonaState.Offline);
+	user.setPersona(user.isOnline && SteamUser.EPersonaState.Online || SteamUser.EPersonaState.Offline);
 }
 
 function tick() {
@@ -3609,10 +4027,10 @@ function login(name, pw, authcode, secret, games, online, callback, opts) {
 		bot.event({type: "steam_disconnect", user: user, account: user.name});
 	});
 
-	user.on("steamGuard", function(domain, callback) {
-		console.log("Steam Guard code needed from email ending in "+domain);
-		console.log("get code now...");
-	});
+	// user.on("steamGuard", function(domain, callback) {
+	// 	console.log("Steam Guard code needed from email ending in "+domain);
+	// 	console.log("get code now...");
+	// });
 
 	var logOnObj = {
 		accountName: name,
@@ -4504,11 +4922,12 @@ function parseCommand(cmd, ext, opt) {
 }
 bot.executeCommand = function executeCommand(data) {
 	var op = data.op || (data.contextObject && function(...msg) {return data.contextObject.sendMessage(...msg);}) || (() => {});
+	// console.log(op.toString());
 	var callback = data.callback || data.cb || (() => {});
 	callback = typeof callback == "function" ? callback : () => {};
-	op("Beep beep bot.executeCommand feedback");
+	// op("Beep beep bot.executeCommand feedback");
 	if (data.contextObject) {
-		data.contextObject.sendMessage("meow");
+		// data.contextObject.sendMessage("meow");
 	}
 	console.log("bot.executeCommand executed");
 	// var cb;
@@ -4531,7 +4950,7 @@ bot.executeCommand = function executeCommand(data) {
 	if (!cmd[0]) {
 		return;
 	}
-	console.log("parsed command: ["+cmd.join(",")+"]")
+	bot.debug("commands", "parsed command: ["+cmd.join(",")+"]")
 	//TODO: use bot.getAdvancedOutput(op) ???
 	//TODO: code below was pasted from runCommand => fix + allow public cmds, also check authed
 	var callbackInExternal = false;
@@ -4546,6 +4965,7 @@ bot.executeCommand = function executeCommand(data) {
 	if (!authed) {
 		cmds = bot.cmds.filterCommandsByScope(cmds, "public");
 	}
+	bot.debug("commands", cmds.length + " matching command(s) found");
 	if (cmds.length > 1) {
 		op("Found "+cmds.length+" commands with this name. Please check for interfering extensions.");
 		return callback();
@@ -4564,6 +4984,7 @@ bot.executeCommand = function executeCommand(data) {
 		if (call.length > 1) { //doesn't make any sense
 			op("Multiple commands found, please check for interfering extensions. Not executing your command.");
 		}
+		// op("oof");
 		if (call.length == 1) {
 			var callbackCalled = false;
 			try {
@@ -4591,6 +5012,8 @@ bot.executeCommand = function executeCommand(data) {
 				}
 			}
 			cmdExec = true;
+		} else if (call.length == 0) {
+			console.log("Found matching command(s) but no matching function");
 		}
 	}
 	// console.log("Found "+cmds.length+" matching commands");
@@ -4621,7 +5044,9 @@ bot.executeCommand = function executeCommand(data) {
 		}
 	}
 	// throw Error("Unhandled command");
-	op("Error: Unhandled command\nEnter 'help' for a list of commands");
+	if (!data.suppressUnhandledCommand) {
+		op("Error: Unhandled command\nEnter 'help' for a list of commands");
+	}
 	if (callback) {
 		callback();
 	}
@@ -4954,6 +5379,7 @@ bot.cmds.addCommand({
 			}
 		}
 		try {
+			/*
 			if (!acc) {
 				//logout every acc
 				for (var i in users) {
@@ -4970,6 +5396,26 @@ bot.cmds.addCommand({
 				users[acc].prepareKill();
 				users[acc].logOff();
 				delete users[acc];
+			}
+			*/
+			var appaccs = bot.getUsersArray(acc, via, extra);
+			if (appaccs.length > 0) {
+				for (var i = 0; i < appaccs.length; i++) {
+					var user = appaccs[i];
+					if (op.buffer) {
+						op.buffer("logout_cmd", "Logging out of account " + user.name);
+					} else {
+						op("Logging out of account " + user.name);
+					}
+					user.prepareKill();
+					user.logOff();
+					delete bot.users[user.name];
+				}
+				if (op.buffer) {
+					op.finish("logout_cmd");
+				}
+			} else {
+				op("No accounts found matching your selection.");
 			}
 		} catch(err) {
 			op("An error occured: "+err);
@@ -5322,6 +5768,9 @@ bot.cmds.addCommand({
 			if (!uim) {
 				uim = "";
 			}
+			if (!acc) {
+				acc = "*";
+			}
 			var modematch = {
 				0: [
 					"none",
@@ -5396,7 +5845,8 @@ bot.cmds.addCommand({
 				}
 			}
 			var appaccs = {};
-			if (acc) {
+			/*
+			if (acc && acc !== "*") {
 				try {
 					if (!users[acc]) {
 						throw Error(acc+" currently isn't logged in");
@@ -5412,9 +5862,16 @@ bot.cmds.addCommand({
 				}
 			} else {
 				appaccs = users;
-			}
+			} */
+			appaccs = bot.getUsers(acc, via, extra); //allow uimode to use advanced account selection
+			var c = 0;
 			for (var u in appaccs) {
+				c++;
 				var user = appaccs[u];
+				if (!user) {
+					op("User " + u + " invalid, skipping...");
+					continue;
+				}
 				var m = user.personaStateFlags || 0;
 				for (var i = firstI; i < input.length; i++) {
 					var num = 0;
@@ -5475,6 +5932,9 @@ bot.cmds.addCommand({
 				}
 				user.personaStateFlags = m;
 				updateOnlineStatus(user);
+			}
+			if (c == 0) {
+				op("No accounts found matching your selection.");
 			}
 			if (callback) {
 				return callback();
@@ -5944,7 +6404,7 @@ bot.cmds.addCommand({
 	func: (function(cmd, callback, op, via, extra) {
 		//redirectTo
 		var acc = bot.aliasToAcc(cmd[1]);
-		var to = bot.dictOrAliasToAcc(cmd[2]);
+		var to = bot.dictOrAliasToAcc(cmd[2]); //TODO: rework, don't use that function?
 		if (!acc || acc == "*" || acc == "all") {
 			acc = null;
 		}
@@ -7093,11 +7553,14 @@ function checkForPublicCommand(sid, msg, user, name, authed) {
 
 bot.preExitFunctions = [];
 bot.preExit = function preExit(autokill, exitcb) {
+	// console.log("xd", typeof exitcb);
+	var data = {};
+	data.killdelay = autokill;
 	var ret = [];
 	bot.preExitFunctions.forEach(f => {
 		if (typeof f === "function") {
 			try {
-				ret.push(f());
+				ret.push(f(data));
 			} catch(err) {
 				console.error("Error in preExit function:");
 				console.error(err);
@@ -7369,6 +7832,9 @@ process.on("uncaughtException", function(err) {
 	} catch(err) {
 
 	}
+	if (bot.killed) { //already killed
+		return;
+	}
 	//DONE: execute bot.preExit?
 	function exitcb() {
 		console.log("Exiting...");
@@ -7408,3 +7874,10 @@ if (settings["autologin"]) {
 String.prototype.replaceMultiple = function(findreplace) {
 	return this.replace(new RegExp("(" + Object.keys(findreplace).map(function(i){return i.replace(/[.?*+^$[\]\\(){}|-]/g, "\\$&")}).join("|") + ")", "g"), function(s){ return findreplace[s]});
 }
+
+/*
+	TODO:
+		- remove friends that were offline for more than <opt:friendclean_maxoffline> (if <opt:friendclean_onlyautoaccept>: only remove friend if "Automatically accepted..." in nickname)
+			* get last logon/logoff time from user.users[friend_sid64].last_logoff/last_logon
+			* get nickname from user.myNicknames[friend_sid64]
+*/
