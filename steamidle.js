@@ -3368,6 +3368,7 @@ function checkNewFriends(user, op) {
 		op("No friend requests found for "+bot.prepareNameForOutput(name));
 		return;
 	}
+	var bufkey = "newfriends_"+name+"_"+Math.random();
 	for (var frid in aFriendRequests[name]) {
 		var state = aFriendRequests[name][frid];
 		if (state == "+") {
@@ -3383,7 +3384,14 @@ function checkNewFriends(user, op) {
 		}
 		var clm = bot.getSetting(["newfriends_chatlink_mode", "newfriends_chatlink"]);
 		var lnk = ((clm == 1 || (clm == 2 && state == "+")) ? "steam://friends/message/" : "http://steamcommunity.com/profiles/")+frid;
-		op(bot.prepareNameForOutput(name)+": "+lnk+" "+msg);
+		if (op.buffer) {
+			op.buffer(bufkey, bot.prepareNameForOutput(name)+": "+lnk+" "+msg);
+		} else {
+			op(bot.prepareNameForOutput(name)+": "+lnk+" "+msg);
+		}
+	}
+	if (op.buffer) {
+		op.finish(bufkey);
 	}
 }
 
