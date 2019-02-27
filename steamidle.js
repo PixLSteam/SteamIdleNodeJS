@@ -766,7 +766,7 @@ bot.getAdvancedOutput = function getAdvancedOutput(old, opts = {}) {
 	r.name = old.name || "SIJS Output";
 	r.buffers = {};
 	r.buffer = function buffer(key, str) {
-		if (old === con.log || old === con.error) {
+		if (old === con.log || old === con.error || old === bot.log) {
 			return this(str);
 		}
 		if (!r.buffers[key]) {
