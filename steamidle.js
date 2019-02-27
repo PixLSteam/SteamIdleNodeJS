@@ -753,6 +753,9 @@ bot.getAdvancedOutput = function getAdvancedOutput(old, opts = {}) {
 	r.name = old.name || "SIJS Output";
 	r.buffers = {};
 	r.buffer = function buffer(key, str) {
+		if (old === con.log || old === con.error) {
+			return this(str);
+		}
 		if (!r.buffers[key]) {
 			r.buffers[key] = [];
 		}
@@ -2216,6 +2219,9 @@ bot.ext.resolve = function resolve(ext) {
 			file = f;
 			break;
 		}
+	}
+	if (!file) {
+		return false;
 	}
 	if (file.substr(0, 1) !== "/" && file.substr(0, 1) !== "~") { //fix so external functions don't have to check themselves
 		file = "./"+file;
