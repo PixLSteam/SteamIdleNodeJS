@@ -147,6 +147,19 @@ if (PixLDebug) {
 }
 //now check cmd args
 
+var customAccFile = false;
+if (true) {
+	var customAccCI = process.argv.indexOf("--accfile");
+	if (customAccCI >= 0) {
+		if (customAccCI >= process.argv.length - 1) {
+			console.error("ERROR: No custom account file specified.\nUsage: --accfile <file>");
+			process.exit();
+		} else {
+			customAccFile = process.argv[customAccCI + 1];
+		}
+	}
+}
+
 var currentMainFilePath = process.argv[1] || module.filename;
 var currentMainFile = path.basename(currentMainFilePath);
 
@@ -4380,6 +4393,9 @@ var pws = {};
 var games = [730];
 var settingsfile = "idleset.json";
 var accfile = "idleaccs.json";
+if (customAccFile) {
+	accfile = customAccFile;
+}
 var game_presets_file = "idlegp.json";
 var game_presets = {
 	cs: [
