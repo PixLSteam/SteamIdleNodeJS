@@ -4547,6 +4547,7 @@ if (aExt >= 0 && aExt < process.argv.length - 1) {
 
 if (customAccFile) {
 	var m;
+	console.log("Custom account file: " + customAccFile);
 	if (customAccFile == "auto") {
 		var set = false;
 		for (var _ext in bot.ext.list) {
