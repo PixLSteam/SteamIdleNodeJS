@@ -159,17 +159,6 @@ for (var i = 0; i < process.argv.length; i++) {
 if (process.argv.includes("writebadgepage")) {
 	bot.writebadgepage = true;
 }
-let aExt = process.argv.indexOf("--ext"); //for automatic startup
-if (aExt >= 0 && aExt < process.argv.length - 1) {
-	var exts = process.argv[aExt + 1];
-	exts = exts.split(",");
-	for (var i = 0; i < exts.length; i++) {
-		var e = exts[i];
-		if (e && e.length > 0) {
-			bot.loadExtension(e);
-		}
-	}
-}
 
 var customAccFile = false;
 if (true) {
@@ -4419,6 +4408,20 @@ var pws = {};
 var games = [730];
 var settingsfile = "idleset.json";
 var accfile = "idleaccs.json";
+
+
+let aExt = process.argv.indexOf("--ext"); //for automatic startup, this is the last place where we can load extensions on startup because we might need them here
+if (aExt >= 0 && aExt < process.argv.length - 1) {
+	var exts = process.argv[aExt + 1];
+	exts = exts.split(",");
+	for (var i = 0; i < exts.length; i++) {
+		var e = exts[i];
+		if (e && e.length > 0) {
+			bot.loadExtension(e);
+		}
+	}
+}
+
 if (customAccFile) {
 	var m;
 	if (customAccFile == "auto") {
