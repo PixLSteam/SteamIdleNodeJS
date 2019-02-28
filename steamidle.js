@@ -4409,63 +4409,6 @@ var games = [730];
 var settingsfile = "idleset.json";
 var accfile = "idleaccs.json";
 
-
-let aExt = process.argv.indexOf("--ext"); //for automatic startup, this is the last place where we can load extensions on startup because we might need them here
-if (aExt >= 0 && aExt < process.argv.length - 1) {
-	var exts = process.argv[aExt + 1];
-	exts = exts.split(",");
-	for (var i = 0; i < exts.length; i++) {
-		var e = exts[i];
-		if (e && e.length > 0) {
-			bot.loadExtension(e);
-		}
-	}
-}
-
-if (customAccFile) {
-	var m;
-	if (customAccFile == "auto") {
-		var set = false;
-		for (var _ext in bot.ext.list) {
-			if (!bot.ext.list.hasOwnProperty(_ext)) {
-				continue;
-			}
-			var e = bot.ext.list[_ext];
-			if (e && e.ret && typeof e.ret.selectAccFile === "function") {
-				var af = e.ret.selectAccFile();
-				if (typeof af === "string") {
-					accfile = af;
-					set = true;
-				}
-			}
-		}
-		if (!set) { //should we got for idleaccs.json instead?
-			console.error("ERROR: Failed to automatically detect account file");
-			process.exit();
-		}
-	} else if (m = customAccFile.match(/^auto:(.*)$/)) {
-		var ext = m[1];
-		if (!bot.ext.isLoaded(ext)) {
-			console.error("ERROR: Extension '"+ext+"' not found for automatic acc file detection");
-			process.exit();
-		}
-		var eo = bot.ext.list[ext];
-		eo = eo.ret;
-		if (eo.selectAccFile) {
-			var af = eo.selectAccFile();
-			if (typeof af !== "string") {
-				console.error("ERROR: Extension '"+ext+"' didn't return an account file");
-				process.exit();
-			}
-			accfile = af;
-		} else {
-			console.error("ERROR: Extension '"+ext+"' doesn't support automatic account file selection");
-			process.exit();
-		}
-	} else {
-		accfile = customAccFile;
-	}
-}
 var game_presets_file = "idlegp.json";
 var game_presets = {
 	cs: [
@@ -4587,6 +4530,66 @@ function loadSettings(display_output) { //TODO: adjust this + def settings to ne
 	return true;
 }
 loadSettings(true);
+
+
+
+let aExt = process.argv.indexOf("--ext"); //for automatic startup, this is the last place where we can load extensions on startup because we might need them here
+if (aExt >= 0 && aExt < process.argv.length - 1) {
+	var exts = process.argv[aExt + 1];
+	exts = exts.split(",");
+	for (var i = 0; i < exts.length; i++) {
+		var e = exts[i];
+		if (e && e.length > 0) {
+			bot.loadExtension(e);
+		}
+	}
+}
+
+if (customAccFile) {
+	var m;
+	if (customAccFile == "auto") {
+		var set = false;
+		for (var _ext in bot.ext.list) {
+			if (!bot.ext.list.hasOwnProperty(_ext)) {
+				continue;
+			}
+			var e = bot.ext.list[_ext];
+			if (e && e.ret && typeof e.ret.selectAccFile === "function") {
+				var af = e.ret.selectAccFile();
+				if (typeof af === "string") {
+					accfile = af;
+					set = true;
+				}
+			}
+		}
+		if (!set) { //should we got for idleaccs.json instead?
+			console.error("ERROR: Failed to automatically detect account file");
+			process.exit();
+		}
+	} else if (m = customAccFile.match(/^auto:(.*)$/)) {
+		var ext = m[1];
+		if (!bot.ext.isLoaded(ext)) {
+			console.error("ERROR: Extension '"+ext+"' not found for automatic acc file detection");
+			process.exit();
+		}
+		var eo = bot.ext.list[ext];
+		eo = eo.ret;
+		if (eo.selectAccFile) {
+			var af = eo.selectAccFile();
+			if (typeof af !== "string") {
+				console.error("ERROR: Extension '"+ext+"' didn't return an account file");
+				process.exit();
+			}
+			accfile = af;
+		} else {
+			console.error("ERROR: Extension '"+ext+"' doesn't support automatic account file selection");
+			process.exit();
+		}
+	} else {
+		accfile = customAccFile;
+	}
+}
+
 try {
 	fs.accessSync(accfile, fs.constants ? fs.constants.R_OK : fs.R_OK);
 } catch (err) {
