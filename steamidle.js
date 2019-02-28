@@ -147,6 +147,30 @@ if (PixLDebug) {
 }
 //now check cmd args
 
+
+for (var i = 0; i < process.argv.length; i++) {
+	var sS = "debug:";
+	if (process.argv[i].substr(0, sS.length) === sS) {
+		var dbM = process.argv[i].substr(sS.length);
+		var dbMAr = dbM.replace(/[\s\;]/, ",").split(",").filter(function(x) {return typeof x == "string" && x.length > 0;});
+		bot.debugModes = dbMAr;
+	}
+}
+if (process.argv.includes("writebadgepage")) {
+	bot.writebadgepage = true;
+}
+let aExt = process.argv.indexOf("--ext"); //for automatic startup
+if (aExt >= 0 && aExt < process.argv.length - 1) {
+	var exts = process.argv[aExt + 1];
+	exts = exts.split(",");
+	for (var i = 0; i < exts.length; i++) {
+		var e = exts[i];
+		if (e && e.length > 0) {
+			bot.loadExtension(e);
+		}
+	}
+}
+
 var customAccFile = false;
 if (true) {
 	var customAccCI = process.argv.indexOf("--accfile");
@@ -4396,7 +4420,48 @@ var games = [730];
 var settingsfile = "idleset.json";
 var accfile = "idleaccs.json";
 if (customAccFile) {
-	accfile = customAccFile;
+	var m;
+	if (customAccFile == "auto") {
+		var set = false;
+		for (var _ext in bot.ext.list) {
+			if (!bot.ext.list.hasOwnProperty(_ext)) {
+				continue;
+			}
+			var e = bot.ext.list[_ext];
+			if (e && e.ret && typeof e.ret.selectAccFile === "function") {
+				var af = e.ret.selectAccFile();
+				if (typeof af === "string") {
+					accfile = af;
+					set = true;
+				}
+			}
+		}
+		if (!set) { //should we got for idleaccs.json instead?
+			console.error("ERROR: Failed to automatically detect account file");
+			process.exit();
+		}
+	} else if (m = customAccFile.match(/^auto:(.*)$/)) {
+		var ext = m[1];
+		if (!bot.ext.isLoaded(ext)) {
+			console.error("ERROR: Extension '"+ext+"' not found for automatic acc file detection");
+			process.exit();
+		}
+		var eo = bot.ext.list[ext];
+		eo = eo.ret;
+		if (eo.selectAccFile) {
+			var af = eo.selectAccFile();
+			if (typeof af !== "string") {
+				console.error("ERROR: Extension '"+ext+"' didn't return an account file");
+				process.exit();
+			}
+			accfile = af;
+		} else {
+			console.error("ERROR: Extension '"+ext+"' doesn't support automatic account file selection");
+			process.exit();
+		}
+	} else {
+		accfile = customAccFile;
+	}
 }
 var game_presets_file = "idlegp.json";
 var game_presets = {
@@ -4525,6 +4590,7 @@ try {
 	console.log("Couldn't read account file '"+accfile+"'");
 	return 1;
 }
+bot.accountFile = accfile;
 var data = fs.readFileSync(accfile);
 try {
 	var pdata = JSON.parse(data);
@@ -7785,28 +7851,6 @@ if (process.argv.includes("write-memory-stats")) {
 	ival = setInterval(log, 1000*60*60);
 	firstLog();
 	log();
-}
-for (var i = 0; i < process.argv.length; i++) {
-	var sS = "debug:";
-	if (process.argv[i].substr(0, sS.length) === sS) {
-		var dbM = process.argv[i].substr(sS.length);
-		var dbMAr = dbM.replace(/[\s\;]/, ",").split(",").filter(function(x) {return typeof x == "string" && x.length > 0;});
-		bot.debugModes = dbMAr;
-	}
-}
-if (process.argv.includes("writebadgepage")) {
-	bot.writebadgepage = true;
-}
-let aExt = process.argv.indexOf("--ext"); //for automatic startup
-if (aExt >= 0 && aExt < process.argv.length - 1) {
-	var exts = process.argv[aExt + 1];
-	exts = exts.split(",");
-	for (var i = 0; i < exts.length; i++) {
-		var e = exts[i];
-		if (e && e.length > 0) {
-			bot.loadExtension(e);
-		}
-	}
 }
 
 process.on("uncaughtException", function(err) {
