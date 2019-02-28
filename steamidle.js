@@ -4144,7 +4144,9 @@ function login(name, pw, authcode, secret, games, online, callback, opts) {
 
 	user.on("loginKey", function(key) {
 		user.hasLoginKey = true;
-		bot.setLoginKey(name, key);
+		if (opts.keep_login) { //only save login key if we want to
+			bot.setLoginKey(name, key);
+		}
 	});
 
 	user.on("newItems", function(count) {
