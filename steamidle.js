@@ -4557,6 +4557,7 @@ if (customAccFile) {
 			if (e && e.ret && typeof e.ret.selectAccFile === "function") {
 				var af = e.ret.selectAccFile();
 				if (typeof af === "string") {
+					console.log("Got account file from extension '"+_ext+"'");
 					accfile = af;
 					set = true;
 				}
