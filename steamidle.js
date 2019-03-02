@@ -147,7 +147,7 @@ if (PixLDebug) {
 }
 //now check cmd args
 
-
+bot.debugModes = [];
 for (var i = 0; i < process.argv.length; i++) {
 	var sS = "debug:";
 	if (process.argv[i].substr(0, sS.length) === sS) {
@@ -1307,6 +1307,7 @@ bot.events.emit = function emit(evt, args, opts) {
 		}
 		var obj = l[i];
 		var f = obj.func;
+		bot.debug("events", "Calling event "+evt+", listener "+i+": "+JSON.stringify(obj));
 		if (typeof f === "function") {
 			f.apply(null, args || []);
 		}
@@ -2352,7 +2353,6 @@ bot.deleteModuleCache = function deleteModuleCache(_module) {
 	delete require.cache[require.resolve(_module)];
 };
 
-bot.debugModes = [];
 bot.getDebugModes = function getDebugModes() {
 	return bot.debugModes.concat();
 };
