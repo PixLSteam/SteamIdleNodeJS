@@ -4546,6 +4546,8 @@ if (aExt >= 0 && aExt < process.argv.length - 1) {
 	}
 }
 
+bot.strictAccFileSelection = false;
+
 for (var _ext in bot.ext.list) {
 	if (!bot.ext.list.hasOwnProperty(ext)) {
 		continue;
@@ -4583,7 +4585,7 @@ for (var _ext in bot.ext.list) {
 			console.error("ERROR: Missing arguments");
 			process.exit();
 		}
-		var ret = func(_args);
+		var ret = func(_args, _ext);
 		if (typeof ret === "object") {
 			if (ret.suppressCMD) {
 				bot.suppressCMD = true;
@@ -4593,6 +4595,9 @@ for (var _ext in bot.ext.list) {
 			}
 			if (ret.customAccFile) {
 				customAccFile = ret.customAccFile;
+			}
+			if (ret.strictAccFileSelection) {
+				bot.strictAccFileSelection = true;
 			}
 		} else {
 			if (ret === true) {
@@ -4614,7 +4619,7 @@ if (customAccFile) {
 			}
 			var e = bot.ext.list[_ext];
 			if (e && e.ret && typeof e.ret.selectAccFile === "function") {
-				var af = e.ret.selectAccFile();
+				var af = e.ret.selectAccFile(bot.strictAccFileSelection);
 				if (typeof af === "string") {
 					console.log("Got account file from extension '"+_ext+"'");
 					accfile = af;
@@ -4635,7 +4640,7 @@ if (customAccFile) {
 		var eo = bot.ext.list[ext];
 		eo = eo.ret;
 		if (eo.selectAccFile) {
-			var af = eo.selectAccFile();
+			var af = eo.selectAccFile(bot.strictAccFileSelection);
 			if (typeof af !== "string") {
 				console.error("ERROR: Extension '"+ext+"' didn't return an account file");
 				process.exit();
