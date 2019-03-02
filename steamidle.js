@@ -1269,6 +1269,7 @@ bot.events.addListener = function addListener(evt, id, func) {
 	obj.id = id;
 	bot.events.listeners[evt][id] = obj;
 };
+bot.events.addEventListener = bot.events.addListener;
 bot.events.removeAllListeners = function removeAllListeners(evt) {
 	if (evt) {
 		// bot.events.listeners[evt] = {};
@@ -1281,6 +1282,7 @@ bot.events.removeListener = function removeListener(evt, id) {
 	bot.events.listeners[evt] = bot.events.listeners[evt] || {};
 	delete bot.events.listeners[evt][id];
 };
+bot.events.removeEventListener = bot.events.removeListener;
 bot.events.getEvents = function getEvents() {
 	var ar = [];
 	for (var i in bot.events.listeners) {
