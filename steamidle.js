@@ -4549,7 +4549,7 @@ if (aExt >= 0 && aExt < process.argv.length - 1) {
 bot.strictAccFileSelection = false;
 
 for (var _ext in bot.ext.list) {
-	if (!bot.ext.list.hasOwnProperty(ext)) {
+	if (!bot.ext.list.hasOwnProperty(_ext)) {
 		continue;
 	}
 	var e = bot.ext.list[_ext];
