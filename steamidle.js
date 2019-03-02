@@ -169,6 +169,7 @@ if (true) {
 			process.exit();
 		} else {
 			customAccFile = process.argv[customAccCI + 1];
+			// console.log("Custom acc file arg: " + customAccFile);
 		}
 	}
 }
@@ -4545,9 +4546,66 @@ if (aExt >= 0 && aExt < process.argv.length - 1) {
 	}
 }
 
+for (var _ext in bot.ext.list) {
+	if (!bot.ext.list.hasOwnProperty(ext)) {
+		continue;
+	}
+	var e = bot.ext.list[_ext];
+	var cmdI = process.argv.indexOf("--"+_ext);
+	if (cmdI >= 0) {
+		var argType = "exact";
+		var argCount = 0;
+		var errorOnArgCountMismatch = false;
+		if (typeof e.ret.cmdSwitch !== "function") {
+			console.error("ERROR: Extension '"+_ext+"' doesn't support command line switch '--"+_ext+"'");
+			process.exit();
+		}
+		var func = e.ret.cmdSwitch;
+		if (func.argCount !== undefined) {
+			argCount = func.argCount;
+		}
+		if (func.argType !== undefined) {
+			argType = func.argType;
+		}
+		if (func.errorOnArgCountMismatch !== undefined) {
+			errorOnArgCountMismatch = func.errorOnArgCountMismatch;
+		}
+		var _args = [];
+		for (var i = cmdI + 1; i < process.argv.length && (_args.length < argCount || argType == "max"); i++) {
+			var _arg = process.argv[i];
+			if (_arg.indexOf("--") == -1 || (["exact"]).indexOf(argType) >= 0) {
+				_args.push(_arg);
+			} else {
+				break;
+			}
+		}
+		if (errorOnArgCountMismatch && _args.length < argCount) {
+			console.error("ERROR: Missing arguments");
+			process.exit();
+		}
+		var ret = func(_args);
+		if (typeof ret === "object") {
+			if (ret.suppressCMD) {
+				bot.suppressCMD = true;
+			}
+			if (ret.forceInstantLogin) {
+				bot.forceInstantLogin = true;
+			}
+			if (ret.customAccFile) {
+				customAccFile = ret.customAccFile;
+			}
+		} else {
+			if (ret === true) {
+				ret.suppressCMD = true;
+				ret.forceInstantLogin = true;
+			}
+		}
+	}
+}
+
 if (customAccFile) {
 	var m;
-	console.log("Custom account file: " + customAccFile);
+	// console.log("Custom account file: " + customAccFile);
 	if (customAccFile == "auto") {
 		var set = false;
 		for (var _ext in bot.ext.list) {
@@ -4743,7 +4801,8 @@ function accGetOpts(i) {
 }
 function doAccId(index) {
 	if (index >= accids.length) {
-		if (settings["cmd"]) {
+		bot.events.emit("autologin_done");
+		if (settings["cmd"] && !bot.suppressCMD) {
 			openCMD();
 		}
 		return;
@@ -7952,10 +8011,12 @@ for (var i = 0; i < bot.startupFuncs.length; i++) {
 	}
 }
 
-if (settings["autologin"]) {
+if (settings["autologin"] || bot.forceInstantLogin) {
 	doAccId(0);
 } else {
-	openCMD();
+	if (!bot.suppressCMD) {
+		openCMD();
+	}
 }
 
 String.prototype.replaceMultiple = function(findreplace) {
