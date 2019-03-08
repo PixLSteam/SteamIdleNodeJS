@@ -43,6 +43,9 @@ var manifestFile = "manifest.json";
 var bot = {};
 global.bot = bot;
 
+bot.logFile = "bot.log";
+bot.errorLogFile = "error.log";
+
 bot.loadPackageJson = function loadPackageJson(mod) {
 	try {
 		return require(mod+"/package.json");
@@ -170,6 +173,32 @@ if (true) {
 		} else {
 			customAccFile = process.argv[customAccCI + 1];
 			// console.log("Custom acc file arg: " + customAccFile);
+		}
+	}
+}
+
+if (true) {
+	var customLogCI = process.argv.indexOf("--logfile");
+	if (customLogCI >= 0) {
+		if (customLogCI >= process.argv.length - 1) {
+			console.error("ERROR: No custom log file specified.\nUsage: --logfile <file>");
+			process.exit();
+		} else {
+			bot.logFile = process.argv[customLogCI + 1];
+			// console.log("Custom log file arg: " + bot.logFile);
+		}
+	}
+}
+
+if (true) {
+	var customErrLogCI = process.argv.indexOf("--errorlogfile");
+	if (customErrLogCI >= 0) {
+		if (customErrLogCI >= process.argv.length - 1) {
+			console.error("ERROR: No custom error log file specified.\nUsage: --errorlogfile <file>");
+			process.exit();
+		} else {
+			bot.errorLogFile = process.argv[customErrLogCI + 1];
+			// console.log("Custom error log file arg: " + bot.errorLogFile);
 		}
 	}
 }
@@ -7855,7 +7884,7 @@ const toLogFile = function toLogFile() {
 			if (!fs.existsSync(bot.getLogFolder())) {
 				fs.mkdirSync(bot.getLogFolder());
 			}
-			fs.writeFileSync(bot.getLogFolder()+"/bot.log", (true ? ds + " | " : "") + str + "\n", {flag: "a"});
+			fs.writeFileSync(bot.getLogFolder()+"/"+bot.logFile, (true ? ds + " | " : "") + str + "\n", {flag: "a"});
 		}
 	} catch(err) {
 		cl("Error writing to log:", err);
@@ -7961,11 +7990,11 @@ process.on("uncaughtException", function(err) {
 		//ignore and go on
 	}
 	try {
-		fs.writeFileSync(folder+"/error.log", errs, {flag: "a"});
+		fs.writeFileSync(folder+"/"+bot.errorLogFile, errs, {flag: "a"});
 		console.log("Uncaught exception. Check error.log for details.");
 		console.log(err.stack ? err.stack : err);
 	} catch(err2) {
-		console.log("Uncaught exception. Error while writing to error.log");
+		console.log("Uncaught exception. Error while writing to "+bot.errorLogFile);
 		console.log("Writing error:", err2);
 		console.log("Uncaught exception:", err);
 	}
