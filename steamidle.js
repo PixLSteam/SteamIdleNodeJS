@@ -5258,6 +5258,9 @@ bot.executeCommand = function executeCommand(data) {
 };
 function runCommand(cmd, callback, output, via, extra) { //via: steam, cmd/console, custom ext stuff (discord, telegram, ...); ext in extra
 	extra = extra || {};
+	if (via === "cmd") {
+		via = "console"; //alias, exit only supports 'console' so making this the preferred one now
+	}
 	var op = output;
 	if (!(op instanceof Function)) {
 		op = getDefaultOutput();
@@ -7866,6 +7869,22 @@ const toLogFile = function toLogFile() {
 		l = bot.getSetting("debug_logging");
 		if (l) {
 			var tS = function(x) {
+				if (typeof x === "object") {
+					var _str;
+					try {
+						_str = x.toString();
+						if (_str !== "[object Object]") {
+							return _str;
+						}
+					} catch(_e) {
+
+					}
+					try {
+						return JSON.stringify(x);
+					} catch(_e) {
+						//circular reference?
+					}
+				}
 				try {
 					return x.toString();
 				} catch(e) {
