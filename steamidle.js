@@ -4090,7 +4090,9 @@ function login(name, pw, authcode, secret, games, online, callback, opts) {
 			console.log("An error occured...");
 			console.log(err);
 			bot.event({account: user.name, user: user, type: "steam_error", error: err});
-			bot.relogin(user);
+			process.nextTick(() => { //in next tick like https://github.com/DoctorMcKay/node-steam-user/compare/bafbaa1a63...527c51b7a9
+				bot.relogin(user);
+			});
 		}
 	});
 
