@@ -56,7 +56,7 @@ bot.loadPackageJson = function loadPackageJson(mod) {
 
 bot.loadedModules = {};
 bot.loadedModules["steam-user"] = {
-	value: SteamUser,
+	value: SteamUser, //TODO: fix
 	data: bot.loadPackageJson("steam-user")
 };
 
@@ -186,6 +186,9 @@ if (true) {
 		} else {
 			bot.logFile = process.argv[customLogCI + 1];
 			// console.log("Custom log file arg: " + bot.logFile);
+			if (bot.logFile == "none") {
+				bot.logFile = null;
+			}
 		}
 	}
 }
@@ -1328,7 +1331,10 @@ bot.events.emit = function emit(evt, args, opts) {
 	if (bot.killed) { //do not emit any events when the bot has been killed
 		return;
 	}
-	opts = opts || {};
+	//opts = opts || {};
+	let defaultOpts = {};
+	let options = Object.assign({}, defaultOpts);
+	Object.assign(options, opts);
 	var l = bot.events.getListeners(evt);
 	for (var i in l) {
 		if (!l.hasOwnProperty(i)) {
@@ -2322,6 +2328,7 @@ bot.loadExtension = function loadExtension(ext, op) {
 			} else {
 
 			}
+			bot.events.emit("extension_loaded", [eobj, kek]);
 		} else {
 			console.log("No file found for ext "+ext);
 		}
@@ -2350,6 +2357,7 @@ bot.loadExtension = function loadExtension(ext, op) {
 		bot.registerError(e);
 	}
 };
+bot.ext.loadExtension = bot.loadExtension;
 bot.ext.stopExtension = function stopExtension(ext, op) {
 	if (!bot.ext.isLoaded(ext)) {
 		return op && typeof op === "function" && op("Extension not loaded") && false;
@@ -7905,7 +7913,7 @@ const toLogFile = function toLogFile() {
 			if (!fs.existsSync(bot.getLogFolder())) {
 				fs.mkdirSync(bot.getLogFolder());
 			}
-			fs.writeFileSync(bot.getLogFolder()+"/"+bot.logFile, (true ? ds + " | " : "") + str + "\n", {flag: "a"});
+			if (bot.logFile) {fs.writeFileSync(bot.getLogFolder()+"/"+bot.logFile, (true ? ds + " | " : "") + str + "\n", {flag: "a"});}
 		}
 	} catch(err) {
 		cl("Error writing to log:", err);
