@@ -3637,19 +3637,26 @@ function cardCheck(user, callback, keepLastCheck) {
 				try {
 					ownedPackages = user.licenses.map(function(license) {
 						var pkg = user.picsCache.packages[license.package_id].packageinfo;
+						// bot.debug("cards", "package #" + license.package_id + ": " + JSON.stringify(user.picsCache.packages[license.package_id]));
+						if (!pkg) { //might be missing a token
+							return null;
+						}
 						pkg.time_created = license.time_created;
 						pkg.payment_method = license.payment_method;
 						return pkg;
 					}).filter(function(pkg) {
-						return !(pkg.extended && pkg.extended.freeweekend);
+						return pkg && !(pkg.extended && pkg.extended.freeweekend);
 					});
 				} catch(err) {
+					console.error("An error occured while checking card game ownership: ", err);
 					return false;
 				}
 			} else {
 				ownedPackages = [];
 			}
+			// bot.debug("cards", "loading body...");
 			var $_ = Cheerio.load(body);
+			// bot.debug("cards", "body loaded");
 			if (!user.firstGameOnPage) {
 				user.firstGameOnPage = {};
 			}
@@ -3666,9 +3673,9 @@ function cardCheck(user, callback, keepLastCheck) {
 				user.badgeRowLengths = {};
 			}
 			user.badgeRowLengths[g_Page] = brlen; //*/
-			// bot.debug("cards", user.name+" has a badge row length of "+$_(".badge_row").length+" on badge page "+g_Page);
+			bot.debug("cards", user.name+" has a badge row length of "+$_(".badge_row").length+" on badge page "+g_Page);
 			var infolines = $_(".progress_info_bold");
-			// bot.debug("cards", infolines.length+" infolines on page "+g_Page+" on "+user.name);
+			bot.debug("cards", infolines.length+" infolines on page "+g_Page+" on "+user.name);
 			var cardApps = [];
 			for (var i = 0; i < infolines.length; i++) {
 				// var match = $_(infolines[i]).text().(/(\d+) card drops? remaining/);
@@ -3682,7 +3689,7 @@ function cardCheck(user, callback, keepLastCheck) {
 				var idm = href ? href.match(/steam:\/\/run\/(\d+)/) : null;
 				var appid = (idm ? idm[1] : href);
 
-				// bot.debug("cards", ael.html(), href, idm, appid, parseInt(appid), user.picsCache.apps.hasOwnProperty(appid), user.firstGameOnPage[g_Page]);
+				bot.debug("cards", ael.html(), href, idm, appid, parseInt(appid), user.picsCache.apps.hasOwnProperty(appid), user.firstGameOnPage[g_Page]);
 				// var appid2 = broh.match(/^https?:\/\/(?:www\.)?steamcommunity\.com\/(?:.*)\/gamecards\/(?:\d+)\/?$/);
 				var appid2 = broh.match(/\/gamecards\/(\d+)\/?$/);
 				appid2 = appid2 ? appid2[1] : null;
@@ -3712,6 +3719,7 @@ function cardCheck(user, callback, keepLastCheck) {
 
 				//check if app is owned, idm
 				if(!user.picsCache.apps.hasOwnProperty(appid)) {
+					bot.debug("cards", "We don't own " + appid + " even though we still have card drops remaining");
 					continue;
 				}
 
@@ -6441,7 +6449,14 @@ bot.cmds.addCommand({
 					var cb = function(){f(index + 1);};
 					var user = uar[index];
 					console.log("Now adding "+frid.getSteamID64()+" on "+bot.prepareNameForOutput(user.name));
+					let _to = setTimeout(() => {
+						console.log("Reached timeout while adding " + frid.getSteamID64() + " on " + bot.prepareNameForOutput(user.name));
+						let _cb = cb;
+						cb = (() => {});
+						_cb();
+					}, 10000);
 					user.addFriend(frid, function(err, name) {
+						clearTimeout(_to);
 						console.log("Callback for adding "+frid.getSteamID64()+" on "+bot.prepareNameForOutput(user.name));
 						if (err) {
 							op("An error occured: "+err);
